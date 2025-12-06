@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Astra Instance Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #f8f9fa;
+            --bg-secondary: #ffffff;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --accent: #0d6efd;
+            --success: #198754;
+            --danger: #dc3545;
+            --border: #dee2e6;
+            --shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            --shadow-lg: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        }
+        [data-bs-theme="dark"] {
+            --bg-primary: #212529;
+            --bg-secondary: #343a40;
+            --text-primary: #f8f9fa;
+            --text-secondary: #adb5bd;
+            --accent: #0d6efd;
+            --success: #198754;
+            --danger: #dc3545;
+            --border: #495057;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, #e9ecef 100%);
+            min-height: 100vh;
+            color: var(--text-primary);
+        }
+        .header {
+            background: linear-gradient(135deg, var(--accent) 0%, #0a58ca 100%);
+            color: white;
+            padding: 1.5rem 0;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-lg);
+        }
+        .header h1 {
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        .theme-toggle {
+            background: none;
+            border: 1px solid rgba(255,255,255,0.3);
+            color: white;
+            padding: 0.5rem;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+        .theme-toggle:hover {
+            background: rgba(255,255,255,0.1);
+            transform: scale(1.1);
+        }
+        .nav-tabs {
+            border: none;
+            background: var(--bg-secondary);
+            border-radius: 15px;
+            padding: 0.5rem;
+            box-shadow: var(--shadow);
+            margin-bottom: 2rem;
+        }
+        .nav-tabs .nav-link {
+            color: var(--text-secondary);
+            font-weight: 500;
+            border: none;
+            border-radius: 10px;
+            padding: 0.75rem 1.5rem;
+            margin: 0 0.25rem;
+            transition: all 0.3s ease;
+            background: transparent;
+        }
+        .nav-tabs .nav-link:hover {
+            color: var(--accent);
+            background: rgba(13, 110, 253, 0.1);
+            transform: translateY(-2px);
+        }
+        .nav-tabs .nav-link.active {
+            color: var(--accent);
+            background: rgba(13, 110, 253, 0.15);
+            box-shadow: var(--shadow);
+        }
+        .card {
+            background: var(--bg-secondary);
+            border: none;
+            border-radius: 15px;
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+            transition: transform 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        .card-header {
+            background: linear-gradient(135deg, var(--accent) 0%, #0a58ca 100%);
+            color: white;
+            font-weight: 600;
+            border: none;
+            padding: 1rem 1.5rem;
+        }
+        .table {
+            background: transparent;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .table thead th {
+            background: rgba(13, 110, 253, 0.1);
+            color: var(--accent);
+            font-weight: 600;
+            border: none;
+            padding: 1rem;
+        }
+        .table tbody tr {
+            transition: all 0.2s ease;
+        }
+        .table tbody tr:hover {
+            background: rgba(13, 110, 253, 0.05);
+            transform: scale(1.01);
+        }
+        .table tbody td {
+            padding: 1rem;
+            border: none;
+            vertical-align: middle;
+        }
+        .btn {
+            border-radius: 25px;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow);
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        .status-online {
+            color: var(--success);
+            font-weight: 600;
+        }
+        .status-offline {
+            color: var(--danger);
+            font-weight: 600;
+        }
+        .psi-info {
+            background: rgba(13, 110, 253, 0.1);
+            border-left: 4px solid var(--accent);
+            padding: 1rem;
+            border-radius: 10px;
+            margin-top: 1rem;
+            display: none;
+        }
+        .search-input {
+            border-radius: 25px;
+            border: 2px solid var(--border);
+            padding: 0.5rem 1rem;
+            margin-bottom: 1rem;
+            transition: border-color 0.3s ease;
+        }
+        .search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.1);
+            border-radius: 50%;
+            border-top-color: var(--accent);
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .instance-count {
+            background: rgba(255,255,255,0.2);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+        .form-control, .form-select {
+            border-radius: 10px;
+            border: 2px solid var(--border);
+            transition: all 0.3s ease;
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+        }
+    </style>
+</head>
+<body data-bs-theme="light">
+    <div class="header d-flex justify-content-between align-items-center">
+        <div class="container">
+            <h1 class="mb-0">
+                <i class="bi bi-tv-fill me-2"></i> Astra Instance Manager
+                <span class="instance-count ms-3" id="instance-count">0</span>
+            </h1>
+            <button class="theme-toggle btn" onclick="toggleTheme()">
+                <i class="bi bi-moon-stars" id="theme-icon"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="container-fluid px-4">
+        <!-- Search Bar (Global for tabs) -->
+        <div class="mb-3">
+            <input type="text" class="form-control search-input" id="global-search" placeholder="Поиск каналов или мониторов..." onkeyup="filterTables()">
+        </div>
+
+        <!-- Tabs -->
+        <ul class="nav nav-tabs" id="astraTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="channels-tab" data-bs-toggle="tab" data-bs-target="#channels" type="button" role="tab" aria-controls="channels" aria-selected="false">
+                    <i class="bi bi-journal-text me-1"></i> Список каналов
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="monitors-tab" data-bs-toggle="tab" data-bs-target="#monitors" type="button" role="tab" aria-controls="monitors" aria-selected="false">
+                    <i class="bi bi-eyeglasses me-1"></i> Мониторы
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="adapters-tab" data-bs-toggle="tab" data-bs-target="#adapters" type="button" role="tab" aria-controls="adapters" aria-selected="false">
+                    <i class="bi bi-diagram-3 me-1"></i> Адаптеры
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="create-tab" data-bs-toggle="tab" data-bs-target="#create" type="button" role="tab" aria-controls="create" aria-selected="false">
+                    <i class="bi bi-plus-circle me-1"></i> Создать канал
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="control-tab" data-bs-toggle="tab" data-bs-target="#control" type="button" role="tab" aria-controls="control" aria-selected="false">
+                    <i class="bi bi-sliders me-1"></i> Управление экземплярами Astra
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content" id="astraTabContent">
+            <!-- Список каналов -->
+            <div class="tab-pane fade" id="channels" role="tabpanel" aria-labelledby="channels-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-list-ul me-2"></i> Каналы по экземплярам Astra
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="channels-content" class="p-4">Загрузка каналов <span class="loading ms-2"></span>...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Мониторы -->
+            <div class="tab-pane fade" id="monitors" role="tabpanel" aria-labelledby="monitors-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-graph-up me-2"></i> Мониторы по экземплярам Astra (битрейт и статус)
+                    </div>
+                    <div class="card-body p-0">
+                        <div id="monitors-content" class="p-4">Загрузка мониторов <span class="loading ms-2"></span>...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Адаптеры -->
+            <div class="tab-pane fade" id="adapters" role="tabpanel" aria-labelledby="adapters-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-plug me-2"></i> Адаптеры по экземплярам Astra <small class="text-muted">(Функционал в разработке)</small>
+                    </div>
+                    <div class="card-body p-4">
+                        <div id="adapters-content">
+                            <p class="text-center text-muted"><i class="bi bi-gear-wide-connected h1"></i><br>Адаптеры пока не реализованы. Скоро!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Создать канал -->
+            <div class="tab-pane fade" id="create" role="tabpanel" aria-labelledby="create-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-plus-lg me-2"></i> Создание нового канала
+                    </div>
+                    <div class="card-body">
+                        <form id="create-form">
+                            <div class="mb-3">
+                                <label class="form-label"><i class="bi bi-server me-1"></i> Экземпляр Astra:</label>
+                                <select class="form-select" id="create-addr" required></select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label"><i class="bi bi-tag me-1"></i> Имя канала:</label>
+                                <input type="text" class="form-control" id="channel-name" placeholder="TV1" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label"><i class="bi bi-link-45deg me-1"></i> Источник (опционально):</label>
+                                <input type="text" class="form-control" id="channel-src" placeholder="udp://239.1.1.1:1234">
+                            </div>
+                            <button type="submit" class="btn btn-success">
+                                <i class="bi bi-check-lg me-1"></i> Создать канал
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Управление экземплярами -->
+            <div class="tab-pane fade" id="control" role="tabpanel" aria-labelledby="control-tab">
+                <div class="card">
+                    <div class="card-header">
+                        <i class="bi bi-gear me-2"></i> Управление экземпляром Astra
+                    </div>
+                    <div class="card-body">
+                        <form id="control-form">
+                            <div class="mb-3">
+                                <label class="form-label"><i class="bi bi-server me-1"></i> Экземпляр Astra:</label>
+                                <select class="form-select" id="control-addr" required></select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label"><i class="bi bi-play-circle me-1"></i> Действие:</label>
+                                <select class="form-select" id="control-action" required>
+                                    <option value="exit">Остановить Astra</option>
+                                    <option value="reload">Перезапустить Astra</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label"><i class="bi bi-clock me-1"></i> Задержка запуска таймера (сек., опционально):</label>
+                                <input type="number" class="form-control" id="delay" min="0" placeholder="0">
+                            </div>
+                            <button type="submit" class="btn btn-danger">
+                                <i class="bi bi-exclamation-triangle me-1"></i> Выполнить
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let instances = [];
+        let channelsInterval, monitorsInterval, monitorDataInterval;
+
+        // Theme toggle
+        function toggleTheme() {
+            const body = document.body;
+            const isDark = body.getAttribute('data-bs-theme') === 'dark';
+            const newTheme = isDark ? 'light' : 'dark';
+            body.setAttribute('data-bs-theme', newTheme);
+            document.getElementById('theme-icon').className = isDark ? 'bi bi-sun' : 'bi bi-moon-stars';
+            localStorage.setItem('theme', newTheme);
+        }
+        // Load saved theme
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        document.body.setAttribute('data-bs-theme', savedTheme);
+        document.getElementById('theme-icon').className = savedTheme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
+
+        // // Load instances and populate selectors
+        async function fetchInstances() {
+            const res = await fetch('/api/instances');
+            if (res.ok) {
+                instances = await res.json();
+                populateSelectors();
+                document.getElementById('instance-count').textContent = instances.length;
+            }
+        }
+
+        function populateSelectors() {
+            const selects = document.querySelectorAll('#create-addr, #control-addr');
+            selects.forEach(sel => {
+                sel.innerHTML = '<option disabled selected>Выберите экземпляр</option>';
+                instances.forEach(inst => sel.innerHTML += `<option value="${inst.addr}">${inst.addr} (v${inst.version})</option>`);
+            });
+        }
+
+        // Search/Filter function
+        function filterTables() {
+            const search = document.getElementById('global-search').value.toLowerCase();
+            document.querySelectorAll('table tbody tr').forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(search) ? '' : 'none';
+            });
+        }
+
+        async function loadChannels() {
+            const container = document.getElementById('channels-content');
+            container.innerHTML = 'Загрузка <span class="loading ms-2"></span>...';
+            const promises = instances.map(inst => 
+                fetch('/api/get_channel_list', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({astra_addr: inst.addr})
+                }).then(res => res.json()).catch(() => ({}))
+            );
+            const channelLists = await Promise.all(promises);
+            
+            container.innerHTML = channelLists.map((list, idx) => {
+                const addr = instances[idx].addr;
+                return `
+                    <div class="mb-4">
+                        <h6 class="fw-bold text-muted mb-3"><i class="bi bi-server me-2"></i> Экземпляр: ${addr}</h6>
+                        <!-- Таблица с прокруткой для всех экранов -->
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Канал</th>
+                                        <th>Скриншот</th>
+                                        <th>Действия стрима</th>
+                                        <th>Действия канала</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${
+                                    Object.entries(list).map(([id, channelData]) => {
+                                        const name = typeof channelData === 'string' ? channelData : channelData.name || id;
+                                        const screenshotPath = typeof channelData === 'object' && channelData.screenshot ? channelData.screenshot : null;
+                                        const imageSrc = screenshotPath || '/static/default-screenshot.jpg';
+                                        return `
+                                            <tr>
+                                                <td><strong>${name}</strong></td>
+                                                <td style="padding: 5px; vertical-align: middle; overflow: hidden;">
+                                                    <img src="${imageSrc}" alt="Скриншот канала ${name}" class="img-thumbnail" style="width: 100%; max-width: 250px; height: 160px; object-fit: cover; box-shadow: 0 2px 5px rgba(0,0,0,0.2); text-align: center;" onerror="this.onerror=null; this.src='data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';">
+                                                </td>
+                                                <td>
+                                                    <div class="d-flex gap-1">
+                                                        <button class="btn btn-outline-danger btn-sm" style="flex-shrink: 0;" onclick="controlAction('/api/control_kill_stream', '${addr}', '${name}', false)">Остановить</button>
+                                                        <button class="btn btn-outline-success btn-sm" style="flex-shrink: 0;" onclick="controlAction('/api/control_kill_stream', '${addr}', '${name}', true)">Перезапустить</button>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="d-flex gap-1">
+                                                        <button class="btn btn-outline-danger btn-sm" style="flex-shrink: 0;" onclick="controlAction('/api/control_kill_channel', '${addr}', '${name}', false)">Остановить</button>
+                                                        <button class="btn btn-outline-success btn-sm" style="flex-shrink: 0;" onclick="controlAction('/api/control_kill_channel', '${addr}', '${name}', true)">Перезапустить</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')
+                                }</tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        // Мониторы (обновлён со статусами и PSI)
+        async function loadMonitors() {
+            const container = document.getElementById('monitors-content');
+            container.innerHTML = 'Загрузка <span class="loading ms-2"></span>...';
+            const promises = instances.map(inst =>
+                fetch('/api/get_monitor_list', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({astra_addr: inst.addr})
+                }).then(res => res.json()).catch(() => ({}))
+            );
+            const monitorLists = await Promise.all(promises);
+            container.innerHTML = monitorLists.map((list, idx) => {
+                const addr = instances[idx].addr;
+                return `
+                    <div class="mb-4">
+                        <h6 class="fw-bold text-muted mb-3"><i class="bi bi-server me-2"></i> Экземпляр: ${addr}</h6>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead><tr><th>Монитор</th><th>Состояние</th><th>Битрейт</th><th>Действия</th></tr></thead>
+                                <tbody>${
+                                    Object.entries(list).map(([id, name]) => `
+                                        <tr>
+                                            <td><a href="#" class="text-decoration-none" onclick="showPSI('${addr}', '${name}'); return false;"><i class="bi bi-eye me-1"></i>${name}</a></td>
+                                            <td id="status-${name}"><span class="status-online"><i class="bi bi-circle-fill me-1"></i>Онлайн</span></td>
+                                            <td><div class="progress" style="height: 20px;"><div class="progress-bar bg-info" style="width: 90%;">8 Mbps</div></div></td>
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-danger me-1" onclick="controlAction('/api/control_kill_monitor', '${addr}', '${name}', false)">Остановить</button>
+                                                <button class="btn btn-sm btn-outline-success" onclick="controlAction('/api/control_kill_monitor', '${addr}', '${name}', true)">Перезапустить</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')
+                                }</tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            monitorsInterval = setInterval(loadMonitors, 30000);
+            updateMonitorData();
+            monitorDataInterval = setInterval(updateMonitorData, 30000);
+        }
+
+        async function updateMonitorData() {
+            // Update statuses with real data if available (placeholder)
+            // For example, fetch /api/get_monitor_data
+        }
+
+        // Вспомогательные функции для красивого рендеринга объекта
+        function renderValue(value) {
+            if (typeof value === 'object' && value !== null) {
+                if (Array.isArray(value)) {
+                    if (value.length === 0) return '<em class="text-muted">Пустой массив</em>';
+                    return '<ul class="list-group list-group-flush">' + value.map(item => '<li class="list-group-item">' + renderValue(item) + '</li>').join('') + '</ul>';
+                } else {
+                    return renderObject(value); // Вложенный объект рендерим без заголовка
+                }
+            } else {
+                return '<span class="text-primary fw-bold">' + (value === '' ? '<em>Пусто</em>' : value) + '</span>';
+            }
+        }
+
+        function renderObject(obj) {
+            if (!obj || Object.keys(obj).length === 0) return '<div class="text-muted">Нет данных</div>';
+            let html = '<dl class="row gx-2 gy-1">';
+            for (let [key, value] of Object.entries(obj)) {
+                html += `<dt class="col-sm-4 col-md-3 fw-normal text-muted">${key}:</dt>`;
+                html += `<dd class="col-sm-8 col-md-9">${renderValue(value)}</dd>`;
+            }
+            html += '</dl>';
+            return html;
+        }
+
+        // Обновлённая функция showPSI
+        async function showPSI(addr, channel) {
+            // Hide previous PSI
+            document.querySelectorAll('.psi-info').forEach(el => el.style.display = 'none');
+            const psi = await fetch('/api/get_psi', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({astra_addr: addr, channel: channel})
+            }).then(res => res.json()).catch(() => ({pat: 'PSI Data', pmt: 'PMT Data'}));
+            const row = document.querySelector(`#status-${channel}`).closest('tr');
+            if (!row.nextElementSibling || !row.nextElementSibling.classList.contains('psi-info')) {
+                row.insertAdjacentHTML('afterend', `
+                    <tr class="psi-info">
+                        <td colspan="4">
+                            <h6 class="mb-3"><i class="bi bi-info-circle me-2"></i>PSI Информация для ${channel}</h6>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <div class="card h-100">
+                                        <div class="card-header bg-light"><strong>PAT (Program Association Table)</strong></div>
+                                        <div class="card-body p-2">${renderObject(psi.pat)}</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card h-100">
+                                        <div class="card-header bg-light"><strong>SDT (Service Description Table)</strong></div>
+                                        <div class="card-body p-2">${renderObject(psi.sdt)}</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card h-100">
+                                        <div class="card-header bg-light"><strong>PMT (Program Map Table)</strong></div>
+                                        <div class="card-body p-2">${renderObject(psi.pmt)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                `);
+                row.nextElementSibling.style.display = 'table-row';
+            }
+        }
+
+        // Адаптеры (placeholder)
+        function loadAdapters() {
+            document.getElementById('adapters-content').innerHTML = `
+                <div class="text-center py-5">
+                    <i class="bi bi-gear-wide-connected h1 text-accent mb-3"></i>
+                    <h5 class="text-muted">Адаптеры: функционал в разработке</h5>
+                    <p class="text-secondary">Скоро здесь будут список адаптеров с возможностью управления.</p>
+                </div>
+            `;
+        }
+
+        async function controlAction(api, addr, channel, reboot) {
+            if (!confirm(`${reboot ? 'Перезапустить' : 'Остановить'} ${channel}?`)) return;
+            const res = await fetch(api, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({astra_addr: addr, channel: channel, reboot: reboot})
+            });
+            if (res.ok) {
+                alert('Действие выполнено успешно!');
+                if (api.includes('kill_stream') || api.includes('kill_channel')) loadChannels();
+                else loadMonitors();
+            } else {
+                alert('Ошибка при выполнении действия');
+            }
+        }
+
+        // Event listeners for tabs (остальные без изменений)
+        const channelsTab = new bootstrap.Tab(document.getElementById('channels-tab'));
+        document.getElementById('channels-tab').addEventListener('shown.bs.tab', () => { loadChannels(); if (channelsInterval) clearInterval(channelsInterval); });
+        document.getElementById('channels-tab').addEventListener('hidden.bs.tab', () => channelsInterval && clearInterval(channelsInterval));
+
+        document.getElementById('monitors-tab').addEventListener('shown.bs.tab', () => { loadMonitors(); });
+        document.getElementById('monitors-tab').addEventListener('hidden.bs.tab', () => { monitorsInterval && clearInterval(monitorsInterval); monitorDataInterval && clearInterval(monitorDataInterval); });
+
+        document.getElementById('adapters-tab').addEventListener('shown.bs.tab', loadAdapters);
+
+        // Forms (без изменений)
+        document.getElementById('create-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = {
+                astra_addr: document.getElementById('create-addr').value,
+                name: document.getElementById('channel-name').value,
+                src: document.getElementById('channel-src').value || null
+            };
+            const res = await fetch('/api/create_channel', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+            alert(res.ok ? 'Канал создан успешно!' : 'Ошибка при создании канала');
+        });
+
+        document.getElementById('control-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = {
+                astra_addr: document.getElementById('control-addr').value,
+                delay: parseInt(document.getElementById('delay').value) || 0
+            };
+            const api = document.getElementById('control-action').value === 'exit' ? '/api/exit' : '/api/reload';
+            const res = await fetch(api, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+            alert(res.ok ? 'Действие выполнено!' : 'Ошибка при управлении экземпляром');
+        });
+
+        // // Initial load
+        fetchInstances();
+        setInterval(fetchInstances, 300000);  // Every 5 min
+    </script>
+</body>
+</html>
