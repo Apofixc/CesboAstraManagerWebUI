@@ -1,56 +1,139 @@
 from flask import Flask, request, jsonify, render_template
 import requests
-import argparse
 import threading
 import time
 import logging
+import json
+import os
 
 logging.basicConfig(level=logging.INFO)
 
 app = Flask(__name__, template_folder='templates')
-instances = []  # List of {'addr': 'ip:port', 'version': 'x.x.x'}
+instances = []
 
-# Global variables for initial host and port
-initial_host = None
-initial_port = None
+def load_config(config_file):
+    # Дефолтные настройки (вынесены для устранения дублирования)
+    default_config = {
+        "host": "127.0.0.1",
+        "start_port": 9200,
+        "end_port": 9300,
+        "servers": [],
+        "check_interval": 300,
+        "flask_host": "127.0.0.1",
+        "flask_port": 5000,
+        "debug": False
+    }
+    
+    # Если config_file пустой (передано пустое значение ASTRA_CONFIG), возвращаем дефолт
+    if not config_file:
+        logging.info("Переменная ASTRA_CONFIG пуста или не задана. Используем дефолтные настройки.")
+        return default_config
+    
+    # Если файл не существует, создаём его с дефолтом и выходим
+    if not os.path.exists(config_file):
+        with open(config_file, 'w') as f:
+            json.dump(default_config, f, indent=4)
+        logging.info(f"Создан дефолтный конфиг-файл: {config_file}. Отредактируйте его и перезапустите приложение.")
+        exit(0)
+    
+    # Пробуем загрузить из файла
+    try:
+        with open(config_file, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        logging.error(f"Ошибка чтения конфиг-файла {config_file}: {e}. Используем дефолтные значения.")
+        return default_config
+    
+def check_instance_alive(host, port):
+    try:
+        res = requests.get(f'http://{host}:{port}/api/instance', timeout=5)
+        if res.ok:
+            data = res.json()
+            return data
+    except Exception as e:
+        logging.debug(f"Не удалось подключиться к {host}:{port}: {e}")
+    return None
 
-def update_instances():
-    global instances, initial_host, initial_port
+def perform_update(config):
+    # Предполагаем, что check_instance_alive(host, port) возвращает dict с версией или None
+    # Создаём словарь старых инстансов для быстрого доступа
+    old_instances = {inst['addr']: inst for inst in instances}  # {addr: {'version': ..., 'status': ...}}
     
-    if initial_host is None or initial_port is None:
-        logging.error("Initial host and port not set.")
-        return
+    temp_instances = {}  # Временный словарь для {addr: {'version': ..., 'status': ...}}
+    host = config.get('host', 'localhost')
+    start_port = config.get('start_port', 10000)
+    end_port = config.get('end_port', 20000)
+    servers = config.get('servers', [])  # Если нет - автосканирование
     
-    new_list = []
+    if servers:
+        # Проверка статических серверов
+        for srv in servers:
+            srv_host = srv['host']
+            srv_port = srv['port']
+            addr = f'{srv_host}:{srv_port}'
+            instance_data = check_instance_alive(srv_host, srv_port)
+            if instance_data:
+                temp_instances[addr] = {
+                    'version': instance_data.get('version', 'unknown'),
+                    'status': 'Online'
+                }
+                logging.info(f"Сервер {addr}: онлайн, версия {temp_instances[addr]['version']}")
+            elif addr in old_instances:
+                # Для оффлайн: сохраняем старую версию из old_instances
+                temp_instances[addr] = {
+                    'version': old_instances[addr]['version'],  # Сохраняем предыдущую версию
+                    'status': 'Offline'
+                }
+                logging.warning(f"Сервер {addr}: оффлайн (версия сохранена: {temp_instances[addr]['version']})")
+            # Иначе (новый оффлайн) не добавляем
+    else:
+        # Автосканирование
+        logging.info(f"Начинаем автосканирование {host}:{start_port}-{end_port}")
+        for p in range(start_port, end_port + 1):
+            addr = f'{host}:{p}'
+            instance_data = check_instance_alive(host, p)
+            if instance_data:
+                temp_instances[addr] = {
+                    'version': instance_data.get('version', 'unknown'),
+                    'status': 'Online'
+                }
+                logging.info(f"Найден сервер {addr}, версия {temp_instances[addr]['version']}")
+            elif addr in old_instances:
+                # Для оффлайн: сохраняем старую версию из old_instances
+                temp_instances[addr] = {
+                    'version': old_instances[addr]['version'],  # Сохраняем предыдущую версию
+                    'status': 'Offline'
+                }
+                logging.warning(f"Сервер {addr} остался оффлайн (версия сохранена: {temp_instances[addr]['version']})")
+            # Новые оффлайн не добавляются
     
-    # Scan the first 100 ports starting from the initial port
-    for port in range(initial_port, initial_port + 100):
-        addr = f'{initial_host}:{port}'
-        if any(inst['addr'] == addr for inst in new_list):  # Avoid duplicates
-            continue
-        try:
-            res = requests.get(f'http://{addr}/api/instance', timeout=5)
-            if res.ok:
-                new_inst = {'addr': addr, 'version': res.json().get('version', 'unknown')}
-                new_list.append(new_inst)
-                logging.info(f"Discovered new instance: {addr}")
-        except Exception as e:
-            pass 
-    
-    instances[:] = new_list
-    # Schedule next update in 5 minutes
-    threading.Timer(300, update_instances).start()
+    # Обновляем instances атомарно
+    new_instances = [{'addr': addr, **data} for addr, data in temp_instances.items()]
+    instances[:] = new_instances
+    logging.info(f"Обновлено {len(instances)} инстансов")
+
+def update_instances(config):
+    check_interval = config.get('check_interval', 300)
+    while True:
+        perform_update(config)
+        time.sleep(check_interval)
 
 # Serve the main UI
 @app.route('/')
 def index():
-    update_instances()
     return render_template('index.html')
 
 # Get list of active instances (IPs + versions)
 @app.route('/api/instances')
 def get_instances():
     return jsonify(instances)
+
+@app.route('/api/update_instances', methods=['POST'])
+def api_update_instances():
+    config_file = os.getenv('ASTRA_CONFIG', 'astra_config.json')
+    config = load_config(config_file)
+    threading.Thread(target=perform_update, args=(config,)).start()
+    return jsonify({'message': 'Обновление запущено в фоне'})
 
 # Proxy for getting channel list from selected Astra instance
 @app.route('/api/get_channel_list', methods=['POST'])
@@ -165,17 +248,12 @@ def proxy_get_psi():
         return {}
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Astra Instance Management Tool')
-    parser.add_argument('host', help='Initial Astra server IP address')
-    parser.add_argument('port', type=int, help='Initial Astra server port')
-    args = parser.parse_args()
+    # Загружаем конфиг
+    config_file = os.getenv('ASTRA_CONFIG', 'astra_config.json')
+    config = load_config(config_file)
     
-    # Set global variables correctly
-    initial_host = args.host
-    initial_port = args.port
+    # Запускаем обновление в фоне
+    threading.Thread(target=update_instances, args=(config,), daemon=True).start()
     
-    # Start instance update loop
-    update_instances()
-    
-    # Run the web server
-    app.run(host='127.0.0.1', port=5000, debug=False)
+    # Запускаем Flask
+    app.run(host=config['flask_host'], port=config['flask_port'], debug=config['debug'])
