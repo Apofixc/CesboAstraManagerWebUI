@@ -1,18 +1,27 @@
-from flask import Flask, request, jsonify, render_template
+from threading import Lock
+from flask import Flask, request, jsonify, render_template, abort
 import requests
 import threading
 import time
 import logging
 import json
 import os
+import requests.exceptions
+import concurrent.futures
+import signal
+import sys
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = Flask(__name__, template_folder='templates')
 instances = []
+instances_lock = Lock()  # Блокировка для потокобезопасности обновлений
+config = None
 
 def load_config(config_file):
-    # Дефолтные настройки (вынесены для устранения дублирования)
+    """
+    Загружает конфигурацию из файла JSON или использует дефолтные настройки.
+    """
     default_config = {
         "host": "127.0.0.1",
         "start_port": 9200,
@@ -21,239 +30,253 @@ def load_config(config_file):
         "check_interval": 300,
         "flask_host": "127.0.0.1",
         "flask_port": 5000,
-        "debug": False
+        "debug": False,
+        "scan_timeout": 5,
+        "proxy_timeout": 15
     }
     
-    # Если config_file пустой (передано пустое значение ASTRA_CONFIG), возвращаем дефолт
     if not config_file:
         logging.info("Переменная ASTRA_CONFIG пуста или не задана. Используем дефолтные настройки.")
         return default_config
     
-    # Если файл не существует, создаём его с дефолтом и выходим
     if not os.path.exists(config_file):
-        with open(config_file, 'w') as f:
-            json.dump(default_config, f, indent=4)
-        logging.info(f"Создан дефолтный конфиг-файл: {config_file}. Отредактируйте его и перезапустите приложение.")
-        exit(0)
+        try:
+            with open(config_file, 'w') as f:
+                json.dump(default_config, f, indent=4)
+            logging.info(f"Создан дефолтный конфиг-файл: {config_file}. Отредактируйте его и перезапустите приложение.")
+            sys.exit(0)
+        except OSError as e:
+            logging.error(f"Ошибка создания файла {config_file}: {e}")
+            return default_config
     
-    # Пробуем загрузить из файла
     try:
         with open(config_file, 'r') as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        logging.error(f"Ошибка чтения конфиг-файла {config_file}: {e}. Используем дефолтные значения.")
+            loaded = json.load(f)
+            # Валидация базовых ключей
+            for key in ['host', 'start_port', 'end_port', 'check_interval', 'flask_host', 'flask_port', 'debug', 'scan_timeout', 'proxy_timeout']:
+                if key in loaded and not isinstance(loaded[key], (int, str, bool)):
+                    logging.warning(f"Неверный тип для {key}, используем дефолт.")
+                    loaded[key] = default_config[key]
+            for srv in loaded.get('servers', []):
+                if not isinstance(srv, dict) or 'host' not in srv or 'port' not in srv:
+                    logging.error("Неверная структура servers, используем дефолт.")
+                    loaded['servers'] = default_config['servers']
+            return loaded
+    except json.JSONDecodeError:
+        logging.exception(f"Ошибка чтения конфиг-файла {config_file}. Используем дефолтные значения.")
         return default_config
-    
-def check_instance_alive(host, port):
+    except OSError:
+        logging.exception(f"Ошибка доступа к файлу {config_file}. Используем дефолтные значения.")
+        return default_config
+
+def check_instance_alive(host, port, scan_timeout):
+    """
+    Проверяет доступность одного экземпляра Astra.
+    """
     try:
-        res = requests.get(f'http://{host}:{port}/api/instance', timeout=5)
+        res = requests.get(f'http://{host}:{port}/api/instance', timeout=scan_timeout)
         if res.ok:
             data = res.json()
             return data
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         logging.debug(f"Не удалось подключиться к {host}:{port}: {e}")
     return None
 
-def perform_update(config):
-    # Предполагаем, что check_instance_alive(host, port) возвращает dict с версией или None
-    # Создаём словарь старых инстансов для быстрого доступа
-    old_instances = {inst['addr']: inst for inst in instances}  # {addr: {'version': ..., 'status': ...}}
+def perform_update():
+    """
+    Обновляет список активных инстансов Astra (сканирование или статический список).
+    Использует параллельное сканирование для скорости.
+    """
+    global config, instances
+    old_instances = {inst['addr']: inst for inst in instances} 
+    temp_instances = {} 
     
-    temp_instances = {}  # Временный словарь для {addr: {'version': ..., 'status': ...}}
-    host = config.get('host', 'localhost')
-    start_port = config.get('start_port', 10000)
-    end_port = config.get('end_port', 20000)
-    servers = config.get('servers', [])  # Если нет - автосканирование
-    
+    host = config.get('host', '127.0.0.1')
+    start_port = config.get('start_port', 9200)
+    end_port = config.get('end_port', 9300)
+    servers = config.get('servers', []) 
+    scan_timeout = config.get('scan_timeout', 5) 
+
+    target_addresses = []
     if servers:
-        # Проверка статических серверов
-        for srv in servers:
-            srv_host = srv['host']
-            srv_port = srv['port']
-            addr = f'{srv_host}:{srv_port}'
-            instance_data = check_instance_alive(srv_host, srv_port)
-            if instance_data:
-                temp_instances[addr] = {
-                    'version': instance_data.get('version', 'unknown'),
-                    'status': 'Online'
-                }
-                logging.info(f"Сервер {addr}: онлайн, версия {temp_instances[addr]['version']}")
-            elif addr in old_instances:
-                # Для оффлайн: сохраняем старую версию из old_instances
-                temp_instances[addr] = {
-                    'version': old_instances[addr]['version'],  # Сохраняем предыдущую версию
-                    'status': 'Offline'
-                }
-                logging.warning(f"Сервер {addr}: оффлайн (версия сохранена: {temp_instances[addr]['version']})")
-            # Иначе (новый оффлайн) не добавляем
+        target_addresses = [(srv['host'], srv['port'], 'list') for srv in servers]
     else:
-        # Автосканирование
-        logging.info(f"Начинаем автосканирование {host}:{start_port}-{end_port}")
-        for p in range(start_port, end_port + 1):
-            addr = f'{host}:{p}'
-            instance_data = check_instance_alive(host, p)
-            if instance_data:
-                temp_instances[addr] = {
-                    'version': instance_data.get('version', 'unknown'),
-                    'status': 'Online'
-                }
-                logging.info(f"Найден сервер {addr}, версия {temp_instances[addr]['version']}")
-            elif addr in old_instances:
-                # Для оффлайн: сохраняем старую версию из old_instances
-                temp_instances[addr] = {
-                    'version': old_instances[addr]['version'],  # Сохраняем предыдущую версию
-                    'status': 'Offline'
-                }
-                logging.warning(f"Сервер {addr} остался оффлайн (версия сохранена: {temp_instances[addr]['version']})")
-            # Новые оффлайн не добавляются
-    
+        target_addresses = [(host, p, 'autoscan') for p in range(start_port, end_port + 1)]
+
+    # Параллельное сканирование для ускорения
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        future_to_addr = {executor.submit(check_instance_alive, srv_host, srv_port, scan_timeout): (srv_host, srv_port, srv_type) 
+                          for srv_host, srv_port, srv_type in target_addresses}
+        
+        for future in concurrent.futures.as_completed(future_to_addr):
+            srv_host, srv_port, srv_type = future_to_addr[future]
+            addr = f'{srv_host}:{srv_port}'
+            try:
+                instance_data = future.result()
+                if instance_data:
+                    temp_instances[addr] = {
+                        'version': instance_data.get('version', 'unknown'),
+                        'status': 'Online'
+                    }
+                    logging.info(f"Сервер {addr}: онлайн, версия {temp_instances[addr]['version']}")
+                else:
+                    if addr in old_instances:
+                        temp_instances[addr] = {
+                            'version': old_instances[addr]['version'],
+                            'status': 'Offline'
+                        }
+                    elif srv_type != 'autoscan':
+                        temp_instances[addr] = {
+                            'version': "unknown",
+                            'status': 'Offline'
+                        }
+                    logging.debug(f"Сервер {addr}: оффлайн (версия сохранена)")
+            except Exception as e:
+                logging.error(f"Ошибка при проверке {addr}: {e}")
+
     # Обновляем instances атомарно
-    new_instances = [{'addr': addr, **data} for addr, data in temp_instances.items()]
-    instances[:] = new_instances
+    with instances_lock:
+        instances[:] = [{'addr': addr, **data} for addr, data in temp_instances.items()]
     logging.info(f"Обновлено {len(instances)} инстансов")
 
-def update_instances(config):
+def update_instances():
+    """
+    Запускает бесконечный цикл обновления инстансов в фоновом потоке.
+    """
+    global config
     check_interval = config.get('check_interval', 300)
     while True:
-        perform_update(config)
+        perform_update()
         time.sleep(check_interval)
 
-# Serve the main UI
+def check_instance_online(addr):
+    """Вспомогательная функция для проверки, онлайн ли инстанс."""
+    with instances_lock: 
+        return any(i['addr'] == addr and i['status'] == 'Online' for i in instances)
+
+def proxy_request_helper(endpoint):
+    """
+    Универсальная функция для проксирования POST-запросов к Astra API с обработкой ошибок.
+    Парсит addr и request_data из request.json сама, производит все проверки и проксирование.
+    """
+    proxy_timeout = config.get('proxy_timeout', 15)
+    
+    # Парсинг данных из запроса
+    request_data = request.json
+    addr = request_data.get('astra_addr') if request_data else None
+    
+    if not addr or not isinstance(addr, str):
+        return jsonify({'error': 'Неверный или отсутствующий "astra_addr"'}), 400
+    
+    try:
+        host, port = addr.split(':')
+        int(port)
+    except ValueError:
+        return jsonify({'error': 'Неверный формат "astra_addr" (ожидается host:port)'}), 400
+
+    # Проверка онлайн-статуса инстанса (централизованная проверка)
+    if not check_instance_online(addr):
+        return jsonify({'error': f'Инстанс {addr} не найден или оффлайн'}), 404
+
+    url = f'http://{addr}{endpoint}'
+    headers = {'Content-Type': 'application/json'}
+    
+    payload = {k: v for k, v in request_data.items() if k != 'astra_addr'}
+
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=proxy_timeout)
+        content_type = res.headers.get('content-type', '')
+        
+        if res.ok and 'application/json' in content_type:
+            return jsonify(res.json()), res.status_code
+        elif res.ok:
+            return jsonify({'ok': 'Операция выполнена успешно'}), res.status_code
+        else:
+            return jsonify({'error': f'Ошибка на удаленном сервере: Статус {res.status_code}'}), 502
+
+    except requests.exceptions.Timeout:
+        logging.error(f"Таймаут подключения к {addr} на {endpoint}")
+        return jsonify({'error': 'Превышен таймаут подключения к Astra'}), 504
+    except requests.exceptions.ConnectionError as e:
+        logging.error(f"Ошибка подключения к {addr} на {endpoint}: {e}")
+        return jsonify({'error': 'Ошибка подключения к Astra'}), 503
+    except Exception as e:
+        logging.exception(f"Непредвиденная ошибка при проксировании к {addr} на {endpoint}")
+        return jsonify({'error': f'Непредвиденная ошибка: {str(e)}'}), 500
+
 @app.route('/')
 def index():
+    """Serve the main UI."""
     return render_template('index.html')
 
-# Get list of active instances (IPs + versions)
 @app.route('/api/instances')
 def get_instances():
-    return jsonify(instances)
+    """Get list of active instances (IPs + versions)."""
+    # Добавлена блокировка для потокобезопасного чтения
+    with instances_lock:
+        return jsonify(instances)
 
 @app.route('/api/update_instances', methods=['POST'])
 def api_update_instances():
-    config_file = os.getenv('ASTRA_CONFIG', 'astra_config.json')
-    config = load_config(config_file)
-    threading.Thread(target=perform_update, args=(config,)).start()
-    return jsonify({'message': 'Обновление запущено в фоне'})
+    """Trigger a manual background update of the instance list."""
+    perform_update()
+    with instances_lock:
+        return jsonify(instances)
 
-# Proxy for getting channel list from selected Astra instance
+# Прокси-роуты: теперь просто вызывают helper с эндпоинтом
 @app.route('/api/get_channel_list', methods=['POST'])
 def proxy_get_channel_list():
-    addr = request.json['astra_addr']
-    if not any(i['addr'] == addr for i in instances):
-        return jsonify({})
-    try:
-        res = requests.post(f'http://{addr}/api/get_channel_list', json={}, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json() if res.ok and 'application/json' in res.headers.get('content-type', '') else {}
-    except Exception as e:
-        logging.error(f"Error proxying /api/get_channel_list to {addr}: {e}")
-        return {}
+    return proxy_request_helper('/api/get_channel_list')
 
-# Proxy for kill stream/channel (stop/restart streaming)
 @app.route('/api/control_kill_stream', methods=['POST'])
 def proxy_control_kill_stream():
-    addr = request.json['astra_addr']
-    data = {k: v for k, v in request.json.items() if k != 'astra_addr'}
-    try:
-        res = requests.post(f'http://{addr}/api/control_kill_stream', json=data, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json() if res.ok else {'error': 'Failed to control stream'}
-    except Exception as e:
-        return {'error': str(e)}
+    return proxy_request_helper('/api/control_kill_stream')
 
 @app.route('/api/control_kill_channel', methods=['POST'])
 def proxy_control_kill_channel():
-    addr = request.json['astra_addr']
-    data = {k: v for k, v in request.json.items() if k != 'astra_addr'}
-    try:
-        res = requests.post(f'http://{addr}/api/control_kill_channel', json=data, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json() if res.ok else {'error': 'Failed to control channel'}
-    except Exception as e:
-        return {'error': str(e)}
+    return proxy_request_helper('/api/control_kill_channel')
 
-# Proxy for monitors
 @app.route('/api/get_monitor_list', methods=['POST'])
 def proxy_get_monitor_list():
-    addr = request.json['astra_addr']
-    try:
-        res = requests.post(f'http://{addr}/api/get_monitor_list', json={}, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json() if res.ok else {}
-    except Exception as e:
-        return {}
+    return proxy_request_helper('/api/get_monitor_list')
 
 @app.route('/api/control_kill_monitor', methods=['POST'])
 def proxy_control_kill_monitor():
-    addr = request.json['astra_addr']
-    data = {k: v for k, v in request.json.items() if k != 'astra_addr'}
-    try:
-        res = requests.post(f'http://{addr}/api/control_kill_monitor', json=data, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json()
-    except Exception as e:
-        return {'error': str(e)}
+    return proxy_request_helper('/api/control_kill_monitor')
 
 @app.route('/api/get_monitor_data', methods=['POST'])
 def proxy_get_monitor_data():
-    addr = request.json['astra_addr']
-    data = {k: v for k, v in request.json.items() if k != 'astra_addr'}
-    try:
-        res = requests.post(f'http://{addr}/api/get_monitor_data', json=data, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json() if res.ok else {}
-    except Exception as e:
-        return {}
+    return proxy_request_helper('/api/get_monitor_data')
 
-# For adapters (placeholder - no logic yet)
-@app.route('/api/get_adapter_list', methods=['POST'])
-def proxy_get_adapter_list():
-    addr = request.json['astra_addr']
-    # Placeholder: return empty or stub data
-    return jsonify({'adapter_1': {'status': 'Online', 'signal': '80%'}})
-
-# Proxy for killing/starting Astra instance
 @app.route('/api/exit', methods=['POST'])
 def proxy_exit():
-    addr = request.json['astra_addr']
-    data = {k: v for k, v in request.json.items() if k != 'astra_addr'}
-    try:
-        res = requests.post(f'http://{addr}/api/exit', json=data, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json()
-    except Exception as e:
-        return {'error': str(e)}
+    return proxy_request_helper('/api/exit')
 
 @app.route('/api/reload', methods=['POST'])
 def proxy_reload():
-    addr = request.json['astra_addr']
-    data = {k: v for k, v in request.json.items() if k != 'astra_addr'}
-    try:
-        res = requests.post(f'http://{addr}/api/reload', json=data, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json()
-    except Exception as e:
-        return {'error': str(e)}
+    return proxy_request_helper('/api/reload')
 
 @app.route('/api/create_channel', methods=['POST'])
 def proxy_create_channel():
-    addr = request.json['astra_addr']
-    data = {k: v for k, v in request.json.items() if k != 'astra_addr'}
-    try:
-        res = requests.post(f'http://{addr}/api/create_channel', json=data, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json()
-    except Exception as e:
-        return {'error': str(e)}
+    return proxy_request_helper('/api/create_channel')
 
 @app.route('/api/get_psi', methods=['POST'])
 def proxy_get_psi():
-    addr = request.json['astra_addr']
-    data = {k: v for k, v in request.json.items() if k != 'astra_addr'}
-    try:
-        res = requests.post(f'http://{addr}/api/get_psi_channel', json=data, headers={'Content-Type': 'application/json'}, timeout=10)
-        return res.json()
-    except Exception as e:
-        return {}
+    return proxy_request_helper('/api/get_psi_channel')
+
+@app.route('/api/get_adapter_list', methods=['POST'])
+def proxy_get_adapter_list():
+    return proxy_request_helper('/api/get_adapter_list')
+
+def signal_handler(sig, frame):
+    logging.info("Остановка приложения.")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 if __name__ == '__main__':
-    # Загружаем конфиг
-    config_file = os.getenv('ASTRA_CONFIG', 'astra_config.json')
-    config = load_config(config_file)
+    config = load_config(os.getenv('ASTRA_CONFIG', 'astra_config.json'))
+    threading.Thread(target=update_instances, daemon=True).start()
     
-    # Запускаем обновление в фоне
-    threading.Thread(target=update_instances, args=(config,), daemon=True).start()
-    
-    # Запускаем Flask
     app.run(host=config['flask_host'], port=config['flask_port'], debug=config['debug'])
