@@ -253,7 +253,13 @@
                     <div class="card-header">
                         <i class="bi bi-list-ul me-2"></i> Каналы по экземплярам Astra
                     </div>
-                    <div class="card-body p-0">
+                    <div class="card-body">
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="auto-refresh-channels">
+                            <label class="form-check-label" for="auto-refresh-channels">
+                                Автообновление каждую минуту
+                            </label>
+                        </div>
                         <div id="channels-content" class="p-4">Загрузка каналов <span class="loading ms-2"></span>...</div>
                     </div>
                 </div>
@@ -265,7 +271,13 @@
                     <div class="card-header">
                         <i class="bi bi-graph-up me-2"></i> Мониторы по экземплярам Astra (битрейт и статус)
                     </div>
-                    <div class="card-body p-0">
+                    <div class="card-body">
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="auto-refresh-monitors">
+                            <label class="form-check-label" for="auto-refresh-monitors">
+                                Автообновление каждую минуту
+                            </label>
+                        </div>
                         <div id="monitors-content" class="p-4">Загрузка мониторов <span class="loading ms-2"></span>...</div>
                     </div>
                 </div>
@@ -277,8 +289,14 @@
                     <div class="card-header">
                         <i class="bi bi-plug me-2"></i> Адаптеры по экземплярам Astra <small class="text-muted">(Функционал в разработке)</small>
                     </div>
-                    <div class="card-body p-4">
-                        <div id="adapters-content">
+                    <div class="card-body">
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="auto-refresh-adapters">
+                            <label class="form-check-label" for="auto-refresh-adapters">
+                                Автообновление каждую минуту
+                            </label>
+                        </div>
+                        <div id="adapters-content" class="p-4">
                             <p class="text-center text-muted"><i class="bi bi-gear-wide-connected h1"></i><br>Адаптеры пока не реализованы. Скоро!</p>
                         </div>
                     </div>
@@ -348,7 +366,7 @@
 
     <script>
         let instances = [];
-        let channelsInterval, monitorsInterval, monitorDataInterval;
+        let channelsInterval, monitorsInterval, monitorDataInterval, adaptersInterval;
 
         // Theme toggle
         function toggleTheme() {
@@ -364,7 +382,7 @@
         document.body.setAttribute('data-bs-theme', savedTheme);
         document.getElementById('theme-icon').className = savedTheme === 'dark' ? 'bi bi-sun' : 'bi bi-moon-stars';
 
-        // // Load instances and populate selectors
+        // Load instances and populate selectors
         async function fetchInstances() {
             const res = await fetch('/api/instances');
             if (res.ok) {
@@ -389,6 +407,25 @@
                 const text = row.textContent.toLowerCase();
                 row.style.display = text.includes(search) ? '' : 'none';
             });
+        }
+
+        function isTabActive(tabId) {
+            return document.getElementById(tabId).classList.contains('active');
+        }
+
+        function startAutoRefresh(tabId, func, intervalVar) {
+            if (!intervalVar && document.getElementById(`auto-refresh-${tabId.split('-')[0]}s`).checked && isTabActive(tabId)) {
+                intervalVar = setInterval(func, 60000); // 1 minute
+            }
+            return intervalVar;
+        }
+
+        function stopAutoRefresh(intervalVar) {
+            if (intervalVar) {
+                clearInterval(intervalVar);
+                intervalVar = null;
+            }
+            return intervalVar;
         }
 
         async function loadChannels() {
@@ -452,6 +489,7 @@
                 `;
             }).join('');
         }
+
         // Мониторы (обновлён со статусами и PSI)
         async function loadMonitors() {
             const container = document.getElementById('monitors-content');
@@ -490,14 +528,12 @@
                     </div>
                 `;
             }).join('');
-            monitorsInterval = setInterval(loadMonitors, 30000);
+            // Update data initially
             updateMonitorData();
-            monitorDataInterval = setInterval(updateMonitorData, 30000);
         }
 
         async function updateMonitorData() {
             // Update statuses with real data if available (placeholder)
-            // For example, fetch /api/get_monitor_data
         }
 
         // Вспомогательные функции для красивого рендеринга объекта
@@ -594,15 +630,51 @@
             }
         }
 
-        // Event listeners for tabs (остальные без изменений)
-        const channelsTab = new bootstrap.Tab(document.getElementById('channels-tab'));
-        document.getElementById('channels-tab').addEventListener('shown.bs.tab', () => { loadChannels(); if (channelsInterval) clearInterval(channelsInterval); });
-        document.getElementById('channels-tab').addEventListener('hidden.bs.tab', () => channelsInterval && clearInterval(channelsInterval));
+        // Event listeners for tabs
+        document.getElementById('channels-tab').addEventListener('shown.bs.tab', () => { 
+            loadChannels(); 
+            if (document.getElementById('auto-refresh-channels').checked) {
+                channelsInterval = startAutoRefresh('channels', loadChannels, channelsInterval);                 
+            }
+        });
+        document.getElementById('channels-tab').addEventListener('hidden.bs.tab', () => { 
+            channelsInterval = stopAutoRefresh(channelsInterval); 
+            document.getElementById('auto-refresh-channels').checked = false;
+        });
+        document.getElementById('auto-refresh-channels').addEventListener('change', () => { 
+            channelsInterval = document.getElementById('auto-refresh-channels').checked ? startAutoRefresh('channels', loadChannels, channelsInterval) : stopAutoRefresh(channelsInterval); 
+        });
 
-        document.getElementById('monitors-tab').addEventListener('shown.bs.tab', () => { loadMonitors(); });
-        document.getElementById('monitors-tab').addEventListener('hidden.bs.tab', () => { monitorsInterval && clearInterval(monitorsInterval); monitorDataInterval && clearInterval(monitorDataInterval); });
+        document.getElementById('monitors-tab').addEventListener('shown.bs.tab', () => { 
+            loadMonitors(); 
+            if (document.getElementById('auto-refresh-monitors').checked) {
+                monitorsInterval = startAutoRefresh('monitors', loadMonitors, monitorsInterval); 
+                monitorDataInterval = startAutoRefresh('monitors', updateMonitorData, monitorDataInterval);                
+            }            
+        });
+        document.getElementById('monitors-tab').addEventListener('hidden.bs.tab', () => { 
+            monitorsInterval = stopAutoRefresh(monitorsInterval); 
+            monitorDataInterval = stopAutoRefresh(monitorDataInterval); 
+            document.getElementById('auto-refresh-monitors').checked = false;
+        });
+        document.getElementById('auto-refresh-monitors').addEventListener('change', () => { 
+            monitorsInterval = document.getElementById('auto-refresh-monitors').checked ? startAutoRefresh('monitors', loadMonitors, monitorsInterval) : stopAutoRefresh(monitorsInterval); 
+            monitorDataInterval = document.getElementById('auto-refresh-monitors').checked ? startAutoRefresh('monitors', updateMonitorData, monitorDataInterval) : stopAutoRefresh(monitorDataInterval); 
+        });
 
-        document.getElementById('adapters-tab').addEventListener('shown.bs.tab', loadAdapters);
+        document.getElementById('adapters-tab').addEventListener('shown.bs.tab', () => { 
+            loadAdapters(); 
+            if (document.getElementById('auto-refresh-adapters').checked) {
+                adaptersInterval = startAutoRefresh('adapters', loadAdapters, adaptersInterval);            
+            }                     
+        });
+        document.getElementById('adapters-tab').addEventListener('hidden.bs.tab', () => { 
+            adaptersInterval = stopAutoRefresh(adaptersInterval); 
+            document.getElementById('auto-refresh-adapters').checked = false;
+        });
+        document.getElementById('auto-refresh-adapters').addEventListener('change', () => { 
+            adaptersInterval = document.getElementById('auto-refresh-adapters').checked ? startAutoRefresh('adapters', loadAdapters, adaptersInterval) : stopAutoRefresh(adaptersInterval); 
+        });
 
         // Forms (без изменений)
         document.getElementById('create-form').addEventListener('submit', async (e) => {
@@ -628,7 +700,7 @@
             alert(res.ok ? 'Действие выполнено!' : 'Ошибка при управлении экземпляром');
         });
 
-        // // Initial load
+        // Initial load
         fetchInstances();
         setInterval(fetchInstances, 300000);  // Every 5 min
     </script>
