@@ -502,7 +502,7 @@
                 }).then(res => res.json()).catch(() => ({}))
             );
             const channelLists = await Promise.all(promises);
-            
+
             container.innerHTML = channelLists.map((list, idx) => {
                 const addr = instances[idx].addr;
                 return `
