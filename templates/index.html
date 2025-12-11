@@ -187,6 +187,11 @@
             border-radius: 20px;
             font-size: 0.9em;
         }
+        .sse-status {
+            font-size: 0.8em;
+            margin-left: 1rem;
+            vertical-align: middle;
+        }
         .form-control, .form-select {
             border-radius: 10px;
             border: 2px solid var(--border);
@@ -204,6 +209,9 @@
             <h1 class="mb-0">
                 <i class="bi bi-tv-fill me-2"></i> Astra Instance Manager
                 <span class="instance-count ms-3" id="instance-count">0</span>
+                <span class="sse-status" id="sse-status">
+                    <i class="bi bi-wifi" id="sse-icon"></i> SSE: Подключено
+                </span>
             </h1>
             <button class="theme-toggle btn" onclick="toggleTheme()">
                 <i class="bi bi-moon-stars" id="theme-icon"></i>
@@ -402,6 +410,7 @@
     <script>
         let instances = [];
         let channelsInterval, monitorsInterval, monitorDataInterval, adaptersInterval, serversInterval;
+        let eventSource;
 
         // Theme toggle
         function toggleTheme() {
@@ -419,7 +428,9 @@
 
         // Load instances and populate selectors
         async function fetchInstances() {
-            const res = await fetch('/api/instances');
+            const res = await fetch('/api/update_instances', {
+                method: 'POST'
+            });
             if (res.ok) {
                 instances = await res.json();
                 populateSelectors();
@@ -433,6 +444,53 @@
                 sel.innerHTML = '<option disabled selected>Выберите экземпляр</option>';
                 instances.forEach(inst => sel.innerHTML += `<option value="${inst.addr}">${inst.addr} (v${inst.version})</option>`);
             });
+        }
+
+        // SSE setup for real-time updates
+        function setupSSE() {
+            eventSource = new EventSource('/api/instances');
+            eventSource.onmessage = function(event) {
+                const newInstances = JSON.parse(event.data);
+                if (JSON.stringify(newInstances) !== JSON.stringify(instances)) {
+                    console.log('SSE: Обновлён список instances', newInstances);
+                    instances = newInstances;
+                    document.getElementById('instance-count').textContent = instances.length;
+                    populateSelectors(); // Обновляем селекторы
+                    updateActiveInstanceTabs(); // Обновляем активные вкладки с instances
+                }
+            };
+            eventSource.onopen = function() {
+                updateSSEStatus(true);
+            };
+            eventSource.onerror = function() {
+                updateSSEStatus(false);
+                // Повторное подключение через 5 секунд
+                setTimeout(() => {
+                    setupSSE();
+                }, 5000);
+            };
+        }
+
+        function updateSSEStatus(connected) {
+            const sseIcon = document.getElementById('sse-icon');
+            const sseStatus = document.getElementById('sse-status');
+            if (connected) {
+                sseStatus.className = 'sse-status text-success';
+                sseStatus.innerHTML = '<i class="bi bi-wifi" id="sse-icon"></i> SSE: Подключено';
+                sseIcon.className = 'bi bi-wifi';
+            } else {
+                sseStatus.className = 'sse-status text-danger';
+                sseStatus.innerHTML = '<i class="bi bi-wifi-off" id="sse-icon"></i> SSE: Потеряно';
+                sseIcon.className = 'bi bi-wifi-off';
+            }
+        }
+
+        // Функция для обновления активных вкладок, зависящих от instances
+        function updateActiveInstanceTabs() {
+            if (document.getElementById('servers').classList.contains('active')) {
+                loadServers();
+            }
+            // Другие вкладки обновляются вручную или через автообновление
         }
 
         // Search/Filter function
@@ -482,7 +540,7 @@
                                 <tr>
                                     <td>${inst.addr}</td>
                                     <td>v${inst.version}</td>
-                                    <td><span class="status-online"><i class="bi bi-circle-fill me-1"></i>Онлайн</span></td>
+                                    <td><span class="status-${inst.status.toLowerCase()}"><i class="bi bi-circle-fill me-1"></i>${inst.status}</span></td>
                                 </tr>
                             `).join('')
                         }</tbody>
@@ -606,7 +664,7 @@
                     if (value.length === 0) return '<em class="text-muted">Пустой массив</em>';
                     return '<ul class="list-group list-group-flush">' + value.map(item => '<li class="list-group-item">' + renderValue(item) + '</li>').join('') + '</ul>';
                 } else {
-                    return renderObject(value); // Вложенный объект рендерим без заголовка
+                    return renderObject(value);
                 }
             } else {
                 return '<span class="text-primary fw-bold">' + (value === '' ? '<em>Пусто</em>' : value) + '</span>';
@@ -624,9 +682,7 @@
             return html;
         }
 
-        // Обновлённая функция showPSI
         async function showPSI(addr, channel) {
-            // Hide previous PSI
             document.querySelectorAll('.psi-info').forEach(el => el.style.display = 'none');
             const psi = await fetch('/api/get_psi', {
                 method: 'POST',
@@ -763,9 +819,10 @@
             alert(res.ok ? 'Действие выполнено!' : 'Ошибка при управлении экземпляром');
         });
 
-        // Initial load
+        // Initial load and SSE setup
         fetchInstances();
-        setInterval(fetchInstances, 300000);  // Every 5 min
+        setupSSE(); // Запускаем SSE сразу
+        loadServers(); // Загружаем серверы по умолчанию
     </script>
 </body>
 </html>

@@ -1,0 +1,16 @@
+{
+    "host": "127.0.0.1",
+    "start_port": 9200,
+    "end_port": 9300,
+    "servers": [],
+    "check_interval": 300,
+    "flask_host": "127.0.0.1",
+    "flask_port": 5000,
+    "debug": false,
+    "scan_timeout": 5,
+    "proxy_timeout": 15,
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "screenshots_dir": "screenshots",
+    "ffmpeg_timeout": 30
+}
