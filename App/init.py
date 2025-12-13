@@ -38,6 +38,12 @@ class AppCore:
         self.error_handler: Optional[ErrorHandler] = None
         self.http_client: httpx.AsyncClient = None
 
+    async def async_init(self) -> None:
+        """
+        Асинхронная инициализация: загружает конфигурацию после создания объекта.
+        """
+        await self.config_manager.async_init()
+
     def create_app(self) -> Quart:
         """
         Создаёт, конфигурирует и возвращает готовый к запуску экземпляр Quart-приложения.

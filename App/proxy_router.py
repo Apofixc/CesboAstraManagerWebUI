@@ -124,19 +124,18 @@ class ProxyRouter:
         payload = {k: v for k, v in request_data.items() if k != 'astra_addr'}
 
         try:
-            async with httpx.AsyncClient(timeout=proxy_timeout) as client:
-                res = await self.http_client.post(url, json=payload, headers=headers, timeout=proxy_timeout)
-                content_type = res.headers.get('content-type', '')
+            res = await self.http_client.post(url, json=payload, headers=headers, timeout=proxy_timeout)
+            content_type = res.headers.get('content-type', '')
 
-                if res.status_code == 200:
-                    if 'application/json' in content_type:
-                        return jsonify(res.json()), res.status_code
-                    else:
-                        # Сервер Astra вернул 200 OK, но не JSON (например, пустой ответ)
-                        return jsonify({'ok': 'Операция выполнена успешно'}), res.status_code
+            if res.status_code == 200:
+                if 'application/json' in content_type:
+                    return jsonify(res.json()), res.status_code
                 else:
-                    logger.error(f"Ошибка на удаленном сервере: Статус {res.status_code}, Ответ: {res.text}")
-                    return jsonify({'error': f'Ошибка на удаленном сервере: Статус {res.status_code}'}), 502
+                    # Сервер Astra вернул 200 OK, но не JSON (например, пустой ответ)
+                    return jsonify({'ok': 'Операция выполнена успешно'}), res.status_code
+            else:
+                logger.error(f"Ошибка на удаленном сервере: Статус {res.status_code}, Ответ: {res.text}")
+                return jsonify({'error': f'Ошибка на удаленном сервере: Статус {res.status_code}'}), 502
 
         except httpx.TimeoutException:
             logger.error(f"Таймаут подключения к {addr} на {endpoint}")

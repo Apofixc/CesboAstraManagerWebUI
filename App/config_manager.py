@@ -2,6 +2,7 @@ import json
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Union, Optional
+import aiofiles # type: ignore
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator # type: ignore
 import re
@@ -150,7 +151,7 @@ class ConfigManager:
 
     def __init__(self, config_file_path: Optional[str] = 'config.json') -> None:
         """
-        Инициализирует менеджер конфигурации и загружает настройки.
+        Инициализирует менеджер конфигурации.
         
         Если config_file_path None, используется дефолт 'config.json'.
 
@@ -163,9 +164,15 @@ class ConfigManager:
             actual_config_path = config_file_path
         self.config_file_path = Path(actual_config_path)
         self.config_file_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config = self._load_config()
+        self.config = AppConfig() # Инициализируем дефолтной конфигурацией, будет загружена в async_init
 
-    def _load_config(self) -> AppConfig:
+    async def async_init(self) -> None:
+        """
+        Асинхронная инициализация: загружает конфигурацию после создания объекта.
+        """
+        self.config = await self._load_config()
+
+    async def _load_config(self) -> AppConfig:
         """
         Загружает конфигурацию из JSON-файла, валидирует через Pydantic, создаёт файл при отсутствии.
         
@@ -178,13 +185,14 @@ class ConfigManager:
         if not self.config_file_path.exists():
             logger.info(f"Файл {self.config_file_path} не найден. Создаём с дефолтными данными.")
             default_config: AppConfig = AppConfig()
-            with open(self.config_file_path, 'w', encoding='utf-8') as f:
-                f.write(default_config.model_dump_json(indent=4))
+            async with aiofiles.open(self.config_file_path, mode='w', encoding='utf-8') as f:
+                await f.write(default_config.model_dump_json(indent=4))
             return default_config
 
         try:
-            with open(self.config_file_path, 'r', encoding='utf-8') as f:
-                data: Dict[str, Any] = json.load(f)
+            async with aiofiles.open(self.config_file_path, mode='r', encoding='utf-8') as f:
+                content = await f.read()
+                data: Dict[str, Any] = json.loads(content)
             config: AppConfig = AppConfig(**data)
             return config
         except (json.JSONDecodeError, ValidationError) as e:
@@ -200,15 +208,15 @@ class ConfigManager:
         """
         return self.config
 
-    def reload_config(self) -> None:
+    async def reload_config(self) -> None:
         """
         Перезагружает конфигурацию из файла с валидацией.
         
         Текущие настройки в self.config будут перезаписаны новыми данными из файла.
         """
-        self.config = self._load_config()
+        self.config = await self._load_config()
 
-    def save_config(self) -> None:
+    async def save_config(self) -> None:
         """
         Сохраняет текущую конфигурацию в JSON-файл (после валидации через модель).
 
@@ -216,8 +224,8 @@ class ConfigManager:
             IOError: При ошибке записи файла.
         """
         try:
-            with open(self.config_file_path, 'w', encoding='utf-8') as f:
-                f.write(self.config.model_dump_json(indent=4))
+            async with aiofiles.open(self.config_file_path, mode='w', encoding='utf-8') as f:
+                await f.write(self.config.model_dump_json(indent=4))
         except IOError as e:
             logger.error(f"Ошибка сохранения: {e}")
             raise

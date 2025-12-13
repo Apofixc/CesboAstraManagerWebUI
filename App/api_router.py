@@ -76,10 +76,10 @@ class ApiRouter:
                 # Ожидаемое исключение при закрытии соединения клиентом (браузером)
                 logger.info("SSE-соединение для /api/instances отменено клиентом.")
             except Exception as e:
-                # Логирование любых других неожиданных ошибок
                 logger.error(f"Критическая ошибка в SSE-генераторе: {e}", exc_info=True)
+                # Отправка сообщения об ошибке клиенту SSE
+                yield f"event: error\ndata: {json.dumps({'error': 'Ошибка в потоке обновлений', 'message': str(e)})}\n\n"
             finally:
-                # Этот блок гарантирует, что генератор завершится корректно
                 logger.debug("Завершение работы SSE-генератора.")
 
         return Response(generate(), mimetype='text/event-stream')
