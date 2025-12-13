@@ -77,6 +77,7 @@ class AppCore:
         # События жизненного цикла приложения
         @app.before_serving
         async def startup_event():
+            await self.async_init()
             """Обработчик события перед запуском сервера: запускает фоновую задачу обновления инстансов."""
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:

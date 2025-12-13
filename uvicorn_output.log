@@ -1,0 +1,29 @@
+2025-12-13 15:37:49,524 - INFO - Класс ErrorHandler инициализирован и обработчики зарегистрированы.
+2025-12-13 15:37:49,524 - INFO - Сервер инициализирован.
+INFO:     Started server process [91683]
+INFO:     Waiting for application startup.
+2025-12-13 15:37:49,524 - INFO - Кэш инстансов в конфигурации устарел или недействителен.
+2025-12-13 15:37:49,526 - INFO - Сервер запускается. Запуск фонового цикла обновлений.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:5000 (Press CTRL+C to quit)
+2025-12-13 15:37:49,564 - INFO - Обновлено 0 инстансов
+INFO:     127.0.0.1:42090 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42102 - "GET /api/instances HTTP/1.1" 200 OK
+2025-12-13 15:37:52,612 - INFO - Обновлено 0 инстансов
+2025-12-13 15:38:05,126 - INFO - SSE-соединение для /api/instances отменено клиентом.
+INFO:     127.0.0.1:60460 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60470 - "GET /api/instances HTTP/1.1" 200 OK
+2025-12-13 15:38:14,304 - INFO - Обновлено 0 инстансов
+INFO:     127.0.0.1:43338 - "GET / HTTP/1.1" 200 OK
+2025-12-13 15:38:35,658 - INFO - SSE-соединение для /api/instances отменено клиентом.
+INFO:     127.0.0.1:43342 - "GET /api/instances HTTP/1.1" 200 OK
+2025-12-13 15:38:35,709 - INFO - Обновлено 0 инстансов
+2025-12-13 15:39:33,675 - INFO - SSE-соединение для /api/instances отменено клиентом.
+INFO:     127.0.0.1:43342 - "GET /api/instances HTTP/1.1" 200 OK
+INFO:     127.0.0.1:40000 - "GET /api/instances HTTP/1.1" 200 OK
+2025-12-13 15:40:34,704 - INFO - SSE-соединение для /api/instances отменено клиентом.
+2025-12-13 15:40:37,254 - INFO - SSE-соединение для /api/instances отменено клиентом.
+INFO:     127.0.0.1:40000 - "GET /api/instances HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60530 - "GET /api/instances HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60538 - "GET /api/instances HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60552 - "GET /api/instances HTTP/1.1" 200 OK
