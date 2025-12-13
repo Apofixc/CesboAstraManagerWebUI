@@ -3,7 +3,7 @@ import logging
 import httpx # type: ignore
 from asyncio import Lock
 from asyncio import Event as AsyncEvent
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import time # Добавляем импорт time для кэширования
 
 from App.config_manager import ConfigManager
@@ -31,7 +31,11 @@ class InstanceManager:
         # Асинхронная блокировка для безопасного доступа к self.instances
         self.instances_lock: Lock = Lock() 
         # Событие для оповещения подписчиков (например, SSE-клиентов) об обновлениях
-        self.update_event: AsyncEvent = AsyncEvent() 
+        self.update_event: AsyncEvent = AsyncEvent()
+        self._last_save_time: float = 0.0
+        self._save_task: Optional[asyncio.Task] = None
+        # Кэш для результатов check_instance_alive: {(host, port): (result, timestamp)}
+        self._instance_alive_cache: Dict[Tuple[str, int], Tuple[Optional[Dict[str, Any]], float]] = {}
         
         # Загрузка кэша из конфигурации при инициализации
         asyncio.create_task(self._load_initial_cache())
@@ -67,16 +71,31 @@ class InstanceManager:
             Словарь с данными о здоровье инстанса (JSON-ответ), если он онлайн, иначе None.
         """
         addr = f'{host}:{port}'
+        cache_key = (host, port)
+        config = self.config_manager.get_config()
+        instance_alive_cache_ttl = config.instance_alive_cache_ttl
+
+        # Проверяем кэш перед выполнением HTTP-запроса
+        if cache_key in self._instance_alive_cache:
+            cached_result, timestamp = self._instance_alive_cache[cache_key]
+            if (time.time() - timestamp) < instance_alive_cache_ttl:
+                logger.debug(f"Возвращаем кэшированный результат для {addr}")
+                return cached_result
+
+        result = None
         try:
             res = await self.http_client.get(f'http://{host}:{port}/api/health', timeout=scan_timeout)
             if res.status_code == 200:
                 try:
-                    return res.json()
+                    result = res.json()
                 except ValueError:
                     logger.warning(f"Неверный JSON-ответ от {addr}")
         except httpx.RequestError as e:
-            logger.debug(f"Не удалось подключиться к {addr}: {e}")
-        return None
+            logger.info(f"Не удалось подключиться к {addr}: {e}")
+        
+        # Кэшируем результат
+        self._instance_alive_cache[cache_key] = (result, time.time())
+        return result
 
 
     async def perform_update(self):
@@ -145,22 +164,26 @@ class InstanceManager:
             self.instances[:] = [{'addr': addr, **data} for addr, data in temp_instances.items()]
 
         # Проверка на изменения для установки события update_event
+        # Используем сравнение хэшей для более быстрой проверки изменений
         has_changed = False
-        if len(temp_instances) != len(old_instances):
+        new_instances_list = [{'addr': addr, **data} for addr, data in temp_instances.items()]
+        old_instances_list = list(old_instances.values()) # Преобразуем словарь в список для сравнения
+
+        # Сортируем списки для обеспечения консистентного порядка перед сравнением
+        new_instances_list.sort(key=lambda x: x['addr'])
+        old_instances_list.sort(key=lambda x: x['addr'])
+
+        if new_instances_list != old_instances_list:
             has_changed = True
-        else:
-            for addr, new_data in temp_instances.items():
-                old_data = old_instances.get(addr, {})
-                if old_data.get('status') != new_data['status'] or old_data.get('version') != new_data.get('version'):
-                    has_changed = True
-                    break
 
         if has_changed:
             # Обновляем кэш в конфигурации и сохраняем его
             config = self.config_manager.get_config()
             config.cached_instances = self.instances.copy()
             config.cache_timestamp = time.time()
-            asyncio.create_task(self.config_manager.save_config())
+            
+            # Используем механизм debounce для сохранения конфигурации
+            await self._debounce_save_config()
 
             # Устанавливаем и сразу сбрасываем событие, чтобы разбудить ожидающие корутины
             self.update_event.set()
@@ -219,6 +242,30 @@ class InstanceManager:
         """
         async with self.instances_lock:
             return self.instances.copy()
+
+    async def _debounce_save_config(self, delay: float = 5.0) -> None:
+        """
+        Откладывает сохранение конфигурации, чтобы избежать слишком частых записей на диск.
+        Если новая задача сохранения приходит до завершения задержки, предыдущая отменяется.
+        """
+        if self._save_task and not self._save_task.done():
+            self._save_task.cancel()
+            try:
+                await self._save_task # Ожидаем отмены, чтобы избежать RuntimeError
+            except asyncio.CancelledError:
+                pass # Ожидаемое исключение при отмене
+
+        async def _save_task_coro():
+            try:
+                await asyncio.sleep(delay)
+                await self.config_manager.save_config()
+                logger.info("Конфигурация успешно сохранена после задержки.")
+            except asyncio.CancelledError:
+                logger.debug("Задача сохранения конфигурации отменена.")
+            except Exception as e:
+                logger.error(f"Ошибка при отложенном сохранении конфигурации: {e}")
+
+        self._save_task = asyncio.create_task(_save_task_coro())
 
     async def manual_update(self) -> List[Dict[str, Any]]:
         """
