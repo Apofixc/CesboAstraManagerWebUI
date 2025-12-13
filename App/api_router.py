@@ -1,11 +1,19 @@
+"""
+Модуль для маршрутизации API-запросов в приложении Astra Web-UI.
+
+Определяет эндпоинты, обрабатывает HTTP-запросы, рендерит UI
+и обеспечивает потоковую передачу данных через Server-Sent Events (SSE).
+"""
+import asyncio
 import json
 import logging
-from quart import Blueprint, render_template, Response, jsonify, request # type: ignore
-import asyncio
+
+from quart import Blueprint, jsonify, render_template, Response  # type: ignore
 
 from App.instance_manager import InstanceManager
 
 logger = logging.getLogger(__name__)
+
 
 class ApiRouter:
     """
@@ -20,7 +28,8 @@ class ApiRouter:
         Инициализирует маршрутизатор API.
 
         Args:
-            instance_manager: Экземпляр класса InstanceManager, предоставляющий методы для работы с данными.
+            instance_manager: Экземпляр класса InstanceManager,
+                              предоставляющий методы для работы с данными.
         """
         self.instance_manager = instance_manager
         # Инициализация blueprint с указанием пути к шаблонам
@@ -29,11 +38,13 @@ class ApiRouter:
 
     def setup_routes(self):
         """
-        Регистрирует URL-маршруты и соответствующие им асинхронные обработчики (view functions) в blueprint.
+        Регистрирует URL-маршруты и соответствующие им асинхронные обработчики
+        (view functions) в blueprint.
         """
         self.blueprint.add_url_rule('/', 'index', self.index)
         self.blueprint.add_url_rule('/api/instances', 'get_instances', self.get_instances)
-        self.blueprint.add_url_rule('/api/update_instances', 'api_update_instances', self.api_update_instances, methods=['POST'])
+        self.blueprint.add_url_rule('/api/update_instances', 'api_update_instances',
+                                    self.api_update_instances, methods=['POST'])
 
     async def index(self) -> str:
         """
@@ -62,23 +73,24 @@ class ApiRouter:
                 while True:
                     # Ожидание сигнала о новых данных от менеджера инстансов
                     await self.instance_manager.update_event.wait()
-                    
+
                     # Получение актуальных данных
                     data = await self.instance_manager.get_instances()
 
                     if last_sent != data:
                         # Используйте DEBUG вместо INFO для частых сообщений
-                        logger.debug("Отправка обновления инстансов через SSE") 
+                        logger.debug("Отправка обновления инстансов через SSE")
                         yield f"data: {json.dumps(data)}\n\n"
                         last_sent = data
 
             except asyncio.CancelledError:
                 # Ожидаемое исключение при закрытии соединения клиентом (браузером)
                 logger.info("SSE-соединение для /api/instances отменено клиентом.")
-            except Exception as e:
-                logger.error(f"Критическая ошибка в SSE-генераторе: {e}", exc_info=True)
+            except Exception:  # pylint: disable=W0718 # Catching too general exception for SSE generator
+                logger.error("Критическая ошибка в SSE-генераторе", exc_info=True)
                 # Отправка сообщения об ошибке клиенту SSE
-                yield f"event: error\ndata: {json.dumps({'error': 'Ошибка в потоке обновлений', 'message': str(e)})}\n\n"
+                yield (f"event: error\ndata: {json.dumps({'error': 'Ошибка в потоке обновлений',
+                                                          'message': 'Произошла непредвиденная ошибка.'})}\n\n") # pylint: disable=C0301
             finally:
                 logger.debug("Завершение работы SSE-генератора.")
 
@@ -95,7 +107,7 @@ class ApiRouter:
         """
         data = await self.instance_manager.manual_update()
         return jsonify(data)
-    
+
     def get_blueprint(self) -> Blueprint:
         """
         Возвращает сконфигурированный объект Blueprint для регистрации в основном приложении Quart.

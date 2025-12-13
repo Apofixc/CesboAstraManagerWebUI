@@ -1,9 +1,18 @@
+"""
+Модуль для централизованной обработки HTTP-ошибок и исключений в приложении Quart.
+
+Предоставляет асинхронные обработчики для стандартных кодов ошибок (400, 403, 404, 500)
+и регистрирует их в основном приложении.
+"""
 import logging
-from quart import jsonify, Quart, Response # type: ignore
-from werkzeug.exceptions import HTTPException # type: ignore
 from typing import Tuple
 
+from quart import jsonify, Quart, Response  # type: ignore
+from werkzeug.exceptions import HTTPException  # type: ignore
+
+
 logger = logging.getLogger(__name__)
+
 
 class ErrorHandler:
     """
@@ -22,7 +31,7 @@ class ErrorHandler:
         """
         self.app = app
 
-        self.register_error_handlers(app) 
+        self.register_error_handlers(app)
         logger.info("Класс ErrorHandler инициализирован и обработчики зарегистрированы.")
 
     async def handle_404(self, error: HTTPException) -> Tuple[Response, int]:
@@ -37,7 +46,7 @@ class ErrorHandler:
         Returns:
             Кортеж (JSON-ответ, HTTP-статус 404).
         """
-        logger.warning(f"404 ошибка: {error}")
+        logger.warning("404 ошибка: %s", error)
         return jsonify({"error": "Not found", "message": str(error)}), 404
 
     async def handle_500(self, error: Exception) -> Tuple[Response, int]:
@@ -52,7 +61,7 @@ class ErrorHandler:
         Returns:
             Кортеж (JSON-ответ, HTTP-статус 500).
         """
-        logger.error(f"500 ошибка (внутренняя ошибка сервера): {error}", exc_info=True)
+        logger.error("500 ошибка (внутренняя ошибка сервера): %s", error, exc_info=True)
         return jsonify({"error": "Internal server error", "message": "Something went wrong"}), 500
 
     async def handle_400(self, error: HTTPException) -> Tuple[Response, int]:
@@ -67,7 +76,7 @@ class ErrorHandler:
         Returns:
             Кортеж (JSON-ответ, HTTP-статус 400).
         """
-        logger.info(f"400 ошибка (плохой запрос): {error}")
+        logger.info("400 ошибка (плохой запрос): %s", error)
         return jsonify({"error": "Bad request", "message": str(error)}), 400
 
     async def handle_403(self, error: HTTPException) -> Tuple[Response, int]:
@@ -82,7 +91,7 @@ class ErrorHandler:
         Returns:
             Кортеж (JSON-ответ, HTTP-статус 403).
         """
-        logger.warning(f"403 ошибка (запрещено): {error}")
+        logger.warning("403 ошибка (запрещено): %s", error)
         return jsonify({"error": "Forbidden", "message": str(error)}), 403
 
     async def handle_generic_exception(self, error: Exception) -> Tuple[Response, int]:
@@ -97,8 +106,9 @@ class ErrorHandler:
         Returns:
             Кортеж (JSON-ответ, HTTP-статус 500).
         """
-        logger.error(f"Необработанная ошибка: {error}", exc_info=True)
-        return jsonify({"error": "Unexpected error", "message": "An unexpected error occurred."}), 500
+        logger.error("Необработанная ошибка: %s", error, exc_info=True)
+        return jsonify({"error": "Unexpected error",
+                        "message": "An unexpected error occurred."}), 500
 
     def add_custom_error_handler(self, code: int, handler_func):
         """

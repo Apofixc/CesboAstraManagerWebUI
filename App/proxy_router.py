@@ -1,7 +1,14 @@
+"""
+Модуль для маршрутизации прокси-запросов к инстансам Astra API.
+
+Обеспечивает перенаправление клиентских запросов к соответствующим
+инстансам Astra, управляя их доступностью и обработкой ответов.
+"""
 import logging
+from typing import Any, Dict, Optional, Tuple
+
 import httpx # type: ignore
 from quart import Blueprint, request, Response, jsonify # type: ignore
-from typing import Dict
 
 from App.config_manager import ConfigManager
 from App.instance_manager import InstanceManager
@@ -17,19 +24,22 @@ class ProxyRouter:
     на основе данных запроса и асинхронное проксирование запроса.
     """
 
-    def __init__(self, config_manager: ConfigManager, instance_manager: InstanceManager, http_client: httpx.AsyncClient):
+    def __init__(self, config_manager: ConfigManager, instance_manager: InstanceManager,
+                 http_client: httpx.AsyncClient):
         """
         Инициализирует ProxyRouter.
 
         Args:
-            config_manager: Экземпляр ConfigManager для доступа к настройкам приложения (например, таймаутам).
+            config_manager: Экземпляр ConfigManager для доступа к настройкам приложения
+                            (например, таймаутам).
             instance_manager: Экземпляр InstanceManager для проверки статуса целевых инстансов Astra.
+            http_client: Асинхронный HTTP-клиент для выполнения запросов.
         """
         self.config_manager = config_manager
         self.instance_manager = instance_manager
-        self.http_client = http_client 
+        self.http_client = http_client
         # Словарь эндпоинтов, которые будут проксироваться
-        self.proxy_endpoints: Dict[str, str] = {
+        self.proxy_endpoints: Dict[str, str] = {  # pylint: disable=C0301
             '/api/get_channel_list': 'proxy_get_channel_list',
             '/api/get_monitor_list': 'proxy_get_monitor_list',
             '/api/get_monitor_data': 'proxy_get_monitor_data',
@@ -60,7 +70,7 @@ class ProxyRouter:
                 return await self.proxy_request(e)
             # Регистрируем обработчик с уникальным именем
             self.blueprint.add_url_rule(endpoint, func_name, handler, methods=['POST'])
-        
+
     async def proxy_request(self, path: str) -> Response:
         """
         Основной асинхронный обработчик, вызывающий вспомогательную функцию проксирования.
@@ -75,9 +85,78 @@ class ProxyRouter:
         """
         try:
             return await self.proxy_request_helper(path)
-        except Exception as e:
-            logger.error(f"Критическая ошибка в proxy_request для пути {path}: {e}", exc_info=True)
+        except Exception:  # pylint: disable=W0718 # Catching too general exception for top-level error handling
+            logger.error("Критическая ошибка в proxy_request для пути %s", path, exc_info=True)
             return Response("Proxy error", status=500)
+
+    async def _validate_proxy_request_data(self, request_data: Any) -> Tuple[Optional[str], Optional[Tuple[Dict[str, Any], int]]]:
+        """
+        Валидирует входные данные для прокси-запроса.
+
+        Args:
+            request_data: Сырые данные запроса.
+
+        Returns:
+            Кортеж: (адрес Astra, кортеж (JSON-ответ с ошибкой, HTTP-статус) или None).
+        """
+        if not request_data or not isinstance(request_data, dict):
+            return None, ({'error': 'Неверный или отсутствующий JSON'}, 400)
+
+        addr = request_data.get('astra_addr')
+        if not addr or not isinstance(addr, str):
+            return None, ({'error': 'Неверный или отсутствующий "astra_addr"'}, 400)
+
+        try:
+            _, port = addr.split(':')
+            int(port)
+        except ValueError:
+            return None, ({'error': 'Неверный формат "astra_addr" (ожидается host:port)'}, 400)
+
+        if not await self.instance_manager.check_instance_online(addr):
+            return None, ({'error': f'Инстанс {addr} не найден или оффлайн'}, 404)
+
+        return addr, None
+
+    async def _handle_proxy_http_request(self, addr: str, endpoint: str, payload: Dict[str, Any],
+                                         proxy_timeout: int) -> Tuple[Dict[str, Any], int]:
+        """
+        Выполняет HTTP-запрос к целевому инстансу Astra и обрабатывает ответ.
+
+        Args:
+            addr: Адрес инстанса Astra.
+            endpoint: Целевой эндпоинт Astra API.
+            payload: Полезная нагрузка для отправки.
+            proxy_timeout: Таймаут для HTTP-запроса.
+
+        Returns:
+            Кортеж: (JSON-ответ от сервера Astra, HTTP-статус).
+        """
+        url = f'http://{addr}{endpoint}'
+        headers = {'Content-Type': 'application/json'}
+
+        try:
+            res = await self.http_client.post(url, json=payload, headers=headers,
+                                               timeout=proxy_timeout)
+            content_type = res.headers.get('content-type', '')
+
+            if res.status_code == 200:
+                if 'application/json' in content_type:
+                    return res.json(), res.status_code
+                return {'ok': 'Операция выполнена успешно'}, res.status_code
+            logger.error("Ошибка на удаленном сервере: Статус %s, Ответ: %s",
+                         res.status_code, res.text)
+            return {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}'}, 502
+
+        except httpx.TimeoutException:
+            logger.error("Таймаут подключения к %s на %s", addr, endpoint)
+            return {'error': 'Превышен таймаут подключения к Astra'}, 504
+        except httpx.ConnectError as err:
+            logger.error("Ошибка подключения к %s на %s: %s", addr, endpoint, err)
+            return {'error': 'Ошибка подключения к Astra'}, 503
+        except Exception:  # pylint: disable=W0718 # Catching too general exception for top-level error handling
+            logger.exception("Непредвиденная ошибка при проксировании к %s на %s",
+                             addr, endpoint)
+            return {'error': 'Непредвиденная ошибка'}, 500
 
     async def proxy_request_helper(self, endpoint: str) -> Response:
         """
@@ -87,65 +166,34 @@ class ProxyRouter:
         проверяет его статус онлайн через InstanceManager и перенаправляет запрос.
 
         Args:
-            endpoint: Конкретный эндпоинт Astra API, к которому идет обращение (например, '/api/reload').
+            endpoint: Конкретный эндпоинт Astra API, к которому идет обращение
+                      (например, '/api/reload').
 
         Returns:
             JSON-ответ от сервера Astra, либо JSON-ответ с описанием ошибки.
         """
         if not self.config_manager:
             return jsonify({'error': 'Конфигурация не инициализирована'}), 500
-      
+
         config = self.config_manager.get_config()
         proxy_timeout = config.proxy_timeout
 
-        # Парсинг данных из запроса
         request_data = await request.get_json()
-        if not request_data or not isinstance(request_data, dict):
-            return jsonify({'error': 'Неверный или отсутствующий JSON'}), 400
+        addr, validation_error_tuple = await self._validate_proxy_request_data(request_data)
+        if validation_error_tuple:
+            response_data, status_code = validation_error_tuple
+            return jsonify(response_data), status_code
 
-        addr = request_data.get('astra_addr')
-        if not addr or not isinstance(addr, str):
-            return jsonify({'error': 'Неверный или отсутствующий "astra_addr"'}), 400
-
-        try:
-            host, port = addr.split(':')
-            int(port)
-        except ValueError:
-            return jsonify({'error': 'Неверный формат "astra_addr" (ожидается host:port)'}), 400
-
-        # Проверка онлайн-статуса инстанса
-        if not await self.instance_manager.check_instance_online(addr):
-            return jsonify({'error': f'Инстанс {addr} не найден или оффлайн'}), 404
-
-        url = f'http://{addr}{endpoint}'
-        headers = {'Content-Type': 'application/json'}
+        if addr is None: # Дополнительная проверка, хотя по логике не должна быть достигнута
+            return jsonify({'error': 'Непредвиденная ошибка валидации адреса'}), 500
 
         # Удаляем 'astra_addr' из полезной нагрузки перед отправкой на сервер Astra
         payload = {k: v for k, v in request_data.items() if k != 'astra_addr'}
 
-        try:
-            res = await self.http_client.post(url, json=payload, headers=headers, timeout=proxy_timeout)
-            content_type = res.headers.get('content-type', '')
-
-            if res.status_code == 200:
-                if 'application/json' in content_type:
-                    return jsonify(res.json()), res.status_code
-                else:
-                    # Сервер Astra вернул 200 OK, но не JSON (например, пустой ответ)
-                    return jsonify({'ok': 'Операция выполнена успешно'}), res.status_code
-            else:
-                logger.error(f"Ошибка на удаленном сервере: Статус {res.status_code}, Ответ: {res.text}")
-                return jsonify({'error': f'Ошибка на удаленном сервере: Статус {res.status_code}'}), 502
-
-        except httpx.TimeoutException:
-            logger.error(f"Таймаут подключения к {addr} на {endpoint}")
-            return jsonify({'error': 'Превышен таймаут подключения к Astra'}), 504
-        except httpx.ConnectError as e:
-            logger.error(f"Ошибка подключения к {addr} на {endpoint}: {e}")
-            return jsonify({'error': 'Ошибка подключения к Astra'}), 503
-        except Exception as e:
-            logger.exception(f"Непредвиденная ошибка при проксировании к {addr} на {endpoint}")
-            return jsonify({'error': 'Непредвиденная ошибка'}), 500
+        response_data, status_code = await self._handle_proxy_http_request(
+            addr, endpoint, payload, proxy_timeout
+        )
+        return jsonify(response_data), status_code
 
     def get_blueprint(self) -> Blueprint:
         """

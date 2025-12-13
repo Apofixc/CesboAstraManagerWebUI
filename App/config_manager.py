@@ -1,11 +1,19 @@
+"""
+Модуль для управления конфигурацией приложения Astra Web-UI.
+
+Предоставляет классы AppConfig и ConfigManager для определения,
+валидации, загрузки и сохранения настроек приложения из JSON-файла.
+Использует Pydantic для строгой типизации и автоматической валидации.
+"""
 import json
 import logging
-from pathlib import Path
-from typing import List, Dict, Any, Union, Optional
-import aiofiles # type: ignore
-
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator # type: ignore
 import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
+import aiofiles  # type: ignore
+from pydantic import (BaseModel, Field, ValidationError, field_validator,
+                      model_validator) # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -13,10 +21,12 @@ logger = logging.getLogger(__name__)
 IP_REGEX = re.compile(r'^\d+\.\d+\.\d+\.\d+$')
 DOMAIN_REGEX = re.compile(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
+
 class Instance(BaseModel):
     """
-    Класс модели для отдельного серверного инстанса (адрес и порт) с автоматической валидацией.
-    
+    Класс модели для отдельного серверного инстанса (адрес и порт)
+    с автоматической валидацией.
+
     Ограничивает адрес как чистый хост без схемы/порта; порт в диапазоне 1-65535.
     """
     address: str = Field(..., description="Чистый хост/IP/домен сервера (без протокола/порта)")
@@ -26,7 +36,8 @@ class Instance(BaseModel):
     @classmethod
     def validate_address(cls, v: str) -> str:
         """
-        Валидирует значение адреса: проверяет формат (localhost/IP/домен), отсутствие схем и портов (фильтр SSRF).
+        Валидирует значение адреса: проверяет формат (localhost/IP/домен),
+        отсутствие схем и портов (фильтр SSRF).
 
         Args:
             v: Значение адреса (строка).
@@ -35,49 +46,68 @@ class Instance(BaseModel):
             Валидное значение адреса (строка).
 
         Raises:
-            ValueError: Если адрес некорректный (пустой, содержит схему, порт или не соответствует формату).
+            ValueError: Если адрес некорректный (пустой, содержит схему, порт
+                        или не соответствует формату).
         """
         if not v:
             raise ValueError("Address не может быть пустым")
         if ':' in v or v.lower().startswith(('http://', 'https://')):
-            raise ValueError(f"Address должен быть чистым хостом: '{v}' без протокола и порта")
+            raise ValueError(f"Address должен быть чистым хостом: '{v}' "
+                             "без протокола и порта")
         if v == 'localhost':
             pass
         elif IP_REGEX.match(v):  # IP-адрес
             octets: List[str] = v.split('.')
-            if len(octets) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255 for o in octets):
+            if len(octets) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255
+                                           for o in octets):
                 raise ValueError(f"Неверный IP: {v}")
         elif DOMAIN_REGEX.match(v):  # Домен
             pass
         else:
-            raise ValueError(f"Неверный address: '{v}' (ожидается localhost, IP или домен)")
+            raise ValueError(f"Неверный address: '{v}' "
+                             "(ожидается localhost, IP или домен)")
         return v
+
 
 class AppConfig(BaseModel):
     """
-    Класс основной модели конфигурации приложения с полями для хостов, портов, серверов, интервалов и таймаутов.
-    
+    Класс основной модели конфигурации приложения с полями для хостов, портов,
+    серверов, интервалов и таймаутов.
+
     Автоматическая валидация полей при создании или загрузке.
     """
-    instance_host: str = Field("127.0.0.1", description="Хост для инстансов (IP или домен)")
-    start_port: int = Field(9200, ge=1, le=65535, description="Начальный порт для сканирования (1-65535)")
-    end_port: int = Field(9300, ge=1, le=65535, description="Конечный порт для сканирования (1-65535)")
-    servers: List[Instance] = Field(default_factory=list, description="Список серверов (объекты Instance)")
-    check_interval: int = Field(300, gt=0, description="Интервал проверки в секундах (больше 0)")
-    server_host: str = Field("127.0.0.1", description="Хост основного сервера (IP или домен)")
-    server_port: int = Field(5000, ge=1, le=65535, description="Порт основного сервера (1-65535)")
+    instance_host: str = Field("127.0.0.1",
+                               description="Хост для инстансов (IP или домен)")
+    start_port: int = Field(9200, ge=1, le=65535,
+                            description="Начальный порт для сканирования (1-65535)")
+    end_port: int = Field(9300, ge=1, le=65535,
+                          description="Конечный порт для сканирования (1-65535)")
+    servers: List[Instance] = Field(default_factory=list,
+                                    description="Список серверов (объекты Instance)")
+    check_interval: int = Field(300, gt=0,
+                                description="Интервал проверки в секундах (больше 0)")
+    server_host: str = Field("127.0.0.1",
+                             description="Хост основного сервера (IP или домен)")
+    server_port: int = Field(5000, ge=1, le=65535,
+                             description="Порт основного сервера (1-65535)")
     debug: bool = Field(False, description="Режим отладки (True/False)")
-    scan_timeout: int = Field(5, gt=0, description="Таймаут сканирования в секундах (больше 0)")
-    proxy_timeout: int = Field(15, gt=0, description="Таймаут прокси в секундах (больше 0)")
-    cache_ttl: int = Field(10, gt=0, description="Время жизни кэша для инстансов в секундах (больше 0)")
-    cached_instances: List[Dict[str, Any]] = Field(default_factory=list, description="Кэшированный список инстансов")
-    cache_timestamp: float = Field(0.0, description="Временная метка последнего обновления кэша")
+    scan_timeout: int = Field(5, gt=0,
+                              description="Таймаут сканирования в секундах (больше 0)")
+    proxy_timeout: int = Field(15, gt=0,
+                               description="Таймаут прокси в секундах (больше 0)")
+    cache_ttl: int = Field(10, gt=0,
+                           description="Время жизни кэша для инстансов в секундах (больше 0)")
+    cached_instances: List[Dict[str, Any]] = Field(default_factory=list,
+                                                   description="Кэшированный список инстансов")
+    cache_timestamp: float = Field(0.0,
+                                   description="Временная метка последнего обновления кэша")
 
     @field_validator('instance_host', 'server_host')
     @classmethod
     def validate_host(cls, v: str) -> str:
         """
-        Валидирует значение хоста: проверяет формат (localhost/IP/домен), отсутствие схем и портов (фильтр SSRF).
+        Валидирует значение хоста: проверяет формат (localhost/IP/домен),
+        отсутствие схем и портов (фильтр SSRF).
 
         Args:
             v: Значение хоста (строка).
@@ -86,7 +116,8 @@ class AppConfig(BaseModel):
             Валидное значение хоста (строка).
 
         Raises:
-            ValueError: Если хост некорректный (пустой, содержит схему, порт или не соответствует формату).
+            ValueError: Если хост некорректный (пустой, содержит схему, порт
+                        или не соответствует формату).
         """
         if not v:
             raise ValueError("Хост не может быть пустым")
@@ -96,7 +127,8 @@ class AppConfig(BaseModel):
             pass
         elif IP_REGEX.match(v):  # IP-адрес
             octets: List[str] = v.split('.')
-            if len(octets) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255 for o in octets):
+            if len(octets) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255
+                                           for o in octets):
                 raise ValueError(f"Неверный IP: {v}")
         elif DOMAIN_REGEX.match(v):  # Домен
             pass
@@ -108,7 +140,8 @@ class AppConfig(BaseModel):
     @classmethod
     def validate_servers(cls, v: List[Union[Dict[str, Any], Instance]]) -> List[Instance]:
         """
-        Валидирует список серверов: фильтрует некорректные элементы Instance (quiet drop) с логированием, сохраняет валидные.
+        Валидирует список серверов: фильтрует некорректные элементы Instance
+        (quiet drop) с логированием, сохраняет валидные.
 
         Args:
             v: Список сырых данных или объектов Instance.
@@ -128,8 +161,8 @@ class AppConfig(BaseModel):
                 else:
                     raise ValueError("Каждый элемент должен быть dict или Instance")
                 valid_servers.append(server)
-            except ValidationError as e:
-                logger.warning(f"Некорректный сервер пропущен: {e}")
+            except ValidationError as err:
+                logger.warning("Некорректный сервер пропущен: %s", err)
         return valid_servers
 
     @model_validator(mode='after')
@@ -144,14 +177,18 @@ class AppConfig(BaseModel):
             ValueError: Если start_port >= end_port.
         """
         if self.start_port >= self.end_port:
-            raise ValueError(f"start_port ({self.start_port}) должен быть меньше end_port ({self.end_port})")
+            raise ValueError(f"start_port ({self.start_port}) должен быть меньше "
+                             f"end_port ({self.end_port})")
         return self
+
 
 class ConfigManager:
     """
-    Класс для управления загрузкой и валидацией конфигурации из JSON-файла с помощью Pydantic-моделей.
-    
-    При инициализации пытается загрузить конфигурацию из указанного файла. Если файл отсутствует, создаёт его с дефолтными значениями.
+    Класс для управления загрузкой и валидацией конфигурации из JSON-файла
+    с помощью Pydantic-моделей.
+
+    При инициализации пытается загрузить конфигурацию из указанного файла.
+    Если файл отсутствует, создаёт его с дефолтными значениями.
     """
     config_file_path: Path
     config: AppConfig
@@ -159,11 +196,12 @@ class ConfigManager:
     def __init__(self, config_file_path: Optional[str] = 'config.json') -> None:
         """
         Инициализирует менеджер конфигурации.
-        
+
         Если config_file_path None, используется дефолт 'config.json'.
 
         Args:
-            config_file_path: Путь к конфигурационному файлу (по умолчанию 'config.json'; можно None для дефолта).
+            config_file_path: Путь к конфигурационному файлу
+                              (по умолчанию 'config.json'; можно None для дефолта).
         """
         if config_file_path is None:
             actual_config_path: str = 'config.json'
@@ -171,7 +209,8 @@ class ConfigManager:
             actual_config_path = config_file_path
         self.config_file_path = Path(actual_config_path)
         self.config_file_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config = AppConfig() # Инициализируем дефолтной конфигурацией, будет загружена в async_init
+        self.config = AppConfig()  # Инициализируем дефолтной конфигурацией,
+                                   # будет загружена в async_init
 
     async def async_init(self) -> None:
         """
@@ -181,8 +220,9 @@ class ConfigManager:
 
     async def _load_config(self) -> AppConfig:
         """
-        Загружает конфигурацию из JSON-файла, валидирует через Pydantic, создаёт файл при отсутствии.
-        
+        Загружает конфигурацию из JSON-файла, валидирует через Pydantic,
+        создаёт файл при отсутствии.
+
         Метод проверяет наличие файла, при необходимости создаёт дефолтный,
         читает существующий и валидирует его через модель AppConfig.
 
@@ -190,20 +230,23 @@ class ConfigManager:
             Валидный объект AppConfig, готовый к использованию.
         """
         if not self.config_file_path.exists():
-            logger.info(f"Файл {self.config_file_path} не найден. Создаём с дефолтными данными.")
+            logger.info("Файл %s не найден. Создаём с дефолтными данными.",
+                        self.config_file_path)
             default_config: AppConfig = AppConfig()
-            async with aiofiles.open(self.config_file_path, mode='w', encoding='utf-8') as f:
+            async with aiofiles.open(self.config_file_path, mode='w',
+                                     encoding='utf-8') as f:
                 await f.write(default_config.model_dump_json(indent=4))
             return default_config
 
         try:
-            async with aiofiles.open(self.config_file_path, mode='r', encoding='utf-8') as f:
+            async with aiofiles.open(self.config_file_path, mode='r',
+                                     encoding='utf-8') as f:
                 content = await f.read()
                 data: Dict[str, Any] = json.loads(content)
             config: AppConfig = AppConfig(**data)
             return config
-        except (json.JSONDecodeError, ValidationError) as e:
-            logger.error(f"Ошибка загрузки/валидации: {e}. Используем дефолты.")
+        except (json.JSONDecodeError, ValidationError) as err:
+            logger.error("Ошибка загрузки/валидации: %s. Используем дефолты.", err)
             return AppConfig()
 
     def get_config(self) -> AppConfig:
@@ -218,7 +261,7 @@ class ConfigManager:
     async def reload_config(self) -> None:
         """
         Перезагружает конфигурацию из файла с валидацией.
-        
+
         Текущие настройки в self.config будут перезаписаны новыми данными из файла.
         """
         self.config = await self._load_config()
@@ -231,8 +274,9 @@ class ConfigManager:
             IOError: При ошибке записи файла.
         """
         try:
-            async with aiofiles.open(self.config_file_path, mode='w', encoding='utf-8') as f:
+            async with aiofiles.open(self.config_file_path, mode='w',
+                                     encoding='utf-8') as f:
                 await f.write(self.config.model_dump_json(indent=4))
-        except IOError as e:
-            logger.error(f"Ошибка сохранения: {e}")
+        except IOError as err:
+            logger.error("Ошибка сохранения: %s", err)
             raise
