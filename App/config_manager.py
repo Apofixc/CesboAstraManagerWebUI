@@ -9,6 +9,10 @@ import re
 
 logger = logging.getLogger(__name__)
 
+# Компилируем регулярные выражения один раз на уровне модуля
+IP_REGEX = re.compile(r'^\d+\.\d+\.\d+\.\d+$')
+DOMAIN_REGEX = re.compile(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
 class Instance(BaseModel):
     """
     Класс модели для отдельного серверного инстанса (адрес и порт) с автоматической валидацией.
@@ -39,11 +43,11 @@ class Instance(BaseModel):
             raise ValueError(f"Address должен быть чистым хостом: '{v}' без протокола и порта")
         if v == 'localhost':
             pass
-        elif re.match(r'^\d+\.\d+\.\d+\.\d+$', v):  # IP-адрес
+        elif IP_REGEX.match(v):  # IP-адрес
             octets: List[str] = v.split('.')
             if len(octets) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255 for o in octets):
                 raise ValueError(f"Неверный IP: {v}")
-        elif re.match(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):  # Домен
+        elif DOMAIN_REGEX.match(v):  # Домен
             pass
         else:
             raise ValueError(f"Неверный address: '{v}' (ожидается localhost, IP или домен)")
@@ -90,11 +94,11 @@ class AppConfig(BaseModel):
             raise ValueError(f"Хост должен быть чистым: '{v}' без протокола и порта")
         if v == 'localhost':
             pass
-        elif re.match(r'^\d+\.\d+\.\d+\.\d+$', v):  # IP-адрес
+        elif IP_REGEX.match(v):  # IP-адрес
             octets: List[str] = v.split('.')
             if len(octets) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255 for o in octets):
                 raise ValueError(f"Неверный IP: {v}")
-        elif re.match(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', v):  # Домен
+        elif DOMAIN_REGEX.match(v):  # Домен
             pass
         else:
             raise ValueError(f"Неверный хост: '{v}' (ожидается localhost, IP или домен)")

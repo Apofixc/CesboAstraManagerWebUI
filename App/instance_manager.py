@@ -218,17 +218,6 @@ class InstanceManager:
             Копия списка всех отслеживаемых инстансов с их статусами и версиями.
         """
         async with self.instances_lock:
-            # Проверяем кэш в конфигурации перед возвратом данных
-            config = self.config_manager.get_config()
-            cache_ttl = config.cache_ttl
-            
-            if config.cached_instances and (time.time() - config.cache_timestamp < cache_ttl):
-                logger.debug("Возвращаем данные инстансов из кэша конфигурации.")
-                return config.cached_instances.copy()
-            
-            logger.debug("Кэш инстансов в конфигурации устарел или отсутствует, выполняем обновление.")
-            # Если кэш устарел или отсутствует, выполняем обновление
-            await self.perform_update()
             return self.instances.copy()
 
     async def manual_update(self) -> List[Dict[str, Any]]:

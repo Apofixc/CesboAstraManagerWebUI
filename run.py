@@ -7,6 +7,7 @@
 """
 
 import logging
+import asyncio
 
 # Импорт основного класса, управляющего зависимостями и конфигурацией приложения
 from App.init import AppCore 
@@ -20,7 +21,12 @@ try:
     app_core = AppCore(config_path="config.json")
 
     # Создание и конфигурирование экземпляра Quart-приложения
-    app = app_core.create_app() 
+    # Поскольку create_app теперь асинхронный, его нужно вызывать с await
+    # и обернуть в асинхронную функцию для запуска.
+    async def _create_app_async():
+        return await app_core.create_app()
+
+    app = asyncio.run(_create_app_async())
 except KeyboardInterrupt:
     logger.info("Инициализация приложения прервана пользователем")
 except Exception as e:

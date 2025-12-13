@@ -1,7 +1,6 @@
 import logging
 from quart import Quart # type: ignore
 from quart_cors import cors # type: ignore
-from starlette.staticfiles import StaticFiles # type: ignore
 import asyncio
 from typing import Optional
 import httpx  # type: ignore
@@ -36,7 +35,7 @@ class AppCore:
         self.api_router_instance: Optional[ApiRouter] = None
         self.app: Quart = Quart("Astra Web-UI")
         self.error_handler: Optional[ErrorHandler] = None
-        self.http_client: httpx.AsyncClient = None
+        self.http_client: Optional[httpx.AsyncClient] = None
 
     async def async_init(self) -> None:
         """
@@ -44,7 +43,7 @@ class AppCore:
         """
         await self.config_manager.async_init()
 
-    def create_app(self) -> Quart:
+    async def create_app(self) -> Quart:
         """
         Создаёт, конфигурирует и возвращает готовый к запуску экземпляр Quart-приложения.
 
@@ -55,8 +54,15 @@ class AppCore:
             Полностью сконфигурированный экземпляр Quart-приложения.
         """
         app = self.app
-
-        self.http_client: httpx.AsyncClient = httpx.AsyncClient() 
+        
+        # Асинхронная инициализация конфигурации перед использованием
+        # Это гарантирует, что конфигурация полностью загружена до инициализации других компонентов.
+        await self.async_init()
+        
+        config = self.config_manager.get_config()
+        
+        # Инициализация httpx.AsyncClient с таймаутом из конфигурации
+        self.http_client = httpx.AsyncClient(timeout=config.scan_timeout) 
 
         # Инициализация компонентов, которые зависят от менеджеров
         self.instance_manager = InstanceManager(self.config_manager, self.http_client)
@@ -77,7 +83,6 @@ class AppCore:
         # События жизненного цикла приложения
         @app.before_serving
         async def startup_event():
-            await self.async_init()
             """Обработчик события перед запуском сервера: запускает фоновую задачу обновления инстансов."""
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:
@@ -88,7 +93,8 @@ class AppCore:
         async def shutdown_event():
             """Обработчик события после остановки сервера."""
             logger.info("Сервер останавливается.")
-            await self.http_client.aclose()
+            if self.http_client:
+                await self.http_client.aclose()
 
         logger.info("Сервер инициализирован.")
         return app
