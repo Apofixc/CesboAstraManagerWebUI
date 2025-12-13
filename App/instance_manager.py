@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx  # type: ignore
 
-from App.config_manager import ConfigManager
+from .config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 

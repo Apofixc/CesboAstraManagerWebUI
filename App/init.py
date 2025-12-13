@@ -13,11 +13,11 @@ import httpx  # type: ignore
 from quart import Quart  # type: ignore
 from quart_cors import cors  # type: ignore
 
-from App.api_router import ApiRouter
-from App.config_manager import ConfigManager
-from App.error_handler import ErrorHandler
-from App.instance_manager import InstanceManager
-from App.proxy_router import ProxyRouter
+from .api_router import ApiRouter
+from .config_manager import ConfigManager
+from .error_handler import ErrorHandler
+from .instance_manager import InstanceManager
+from .proxy_router import ProxyRouter
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class AppCore:
         """
         await self.config_manager.async_init()
 
-    async def create_app(self) -> Quart:
+    def create_app(self) -> Quart:
         """
         Создаёт, конфигурирует и возвращает готовый к запуску экземпляр Quart-приложения.
 
@@ -66,7 +66,7 @@ class AppCore:
 
         # Асинхронная инициализация конфигурации перед использованием
         # Это гарантирует, что конфигурация полностью загружена до инициализации других компонентов.
-        # await self.async_init() # Удалено, так как инициализация происходит в AppCore.__init__ или _initialize_app
+        #await self.async_init() # Удалено, так как инициализация происходит в AppCore.__init__ или _initialize_app
 
         config = self.config_manager.get_config()
 
@@ -98,6 +98,7 @@ class AppCore:
             Обработчик события перед запуском сервера:
             запускает фоновую задачу обновления инстансов.
             """
+            await self.async_init() 
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:
                 # Запускаем цикл обновлений как фоновую задачу asyncio

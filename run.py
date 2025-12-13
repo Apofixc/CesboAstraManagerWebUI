@@ -10,28 +10,29 @@ import logging
 import asyncio
 
 # Импорт основного класса, управляющего зависимостями и конфигурацией приложения
-from App.init import AppCore 
+from .App.init import AppCore
 
 # Настройка базового уровня логирования и формата сообщений
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-try:
-    # Инициализация ядра приложения с указанием пути к файлу конфигурации
-    app_core = AppCore(config_path="config.json")
+# Инициализация ядра приложения с указанием пути к файлу конфигурации
+app_core = AppCore(config_path="config.json")
 
-    # Создание и конфигурирование экземпляра Quart-приложения
-    # Поскольку create_app теперь асинхронный, его нужно вызывать с await
-    # и обернуть в асинхронную функцию для запуска.
-    async def _create_app_async():
-        return await app_core.create_app()
-
-    app = asyncio.run(_create_app_async())
-except KeyboardInterrupt:
-    logger.info("Инициализация приложения прервана пользователем")
-except Exception as e:
-    logger.error(f"Ошибка инициализации: {str(e)}")
+def app():
+    """
+    Фабричная функция для Uvicorn, которая асинхронно создает и возвращает
+    экземпляр Quart-приложения.
+    """
+    try:
+        return app_core.create_app()
+    except KeyboardInterrupt:
+        logger.info("Инициализация приложения прервана пользователем")
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка инициализации: {str(e)}")
+        raise
 
 if __name__ == '__main__':
     logger.info("Приложение инициализировано. Запуск через команду Uvicorn.")
-    logger.info("Запустите сервер командой: uvicorn run:app --reload")
+    logger.info("Запустите сервер командой: uvicorn astra_manager.run:app --reload --factory")
