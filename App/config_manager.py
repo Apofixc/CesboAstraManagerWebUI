@@ -65,6 +65,9 @@ class AppConfig(BaseModel):
     debug: bool = Field(False, description="Режим отладки (True/False)")
     scan_timeout: int = Field(5, gt=0, description="Таймаут сканирования в секундах (больше 0)")
     proxy_timeout: int = Field(15, gt=0, description="Таймаут прокси в секундах (больше 0)")
+    cache_ttl: int = Field(10, gt=0, description="Время жизни кэша для инстансов в секундах (больше 0)")
+    cached_instances: List[Dict[str, Any]] = Field(default_factory=list, description="Кэшированный список инстансов")
+    cache_timestamp: float = Field(0.0, description="Временная метка последнего обновления кэша")
 
     @field_validator('instance_host', 'server_host')
     @classmethod

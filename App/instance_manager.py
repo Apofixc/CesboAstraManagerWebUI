@@ -4,6 +4,7 @@ import httpx # type: ignore
 from asyncio import Lock
 from asyncio import Event as AsyncEvent
 from typing import List, Dict, Any, Optional
+import time # Добавляем импорт time для кэширования
 
 from App.config_manager import ConfigManager
 
@@ -31,6 +32,27 @@ class InstanceManager:
         self.instances_lock: Lock = Lock() 
         # Событие для оповещения подписчиков (например, SSE-клиентов) об обновлениях
         self.update_event: AsyncEvent = AsyncEvent() 
+        
+        # Загрузка кэша из конфигурации при инициализации
+        asyncio.create_task(self._load_initial_cache())
+
+    async def _load_initial_cache(self) -> None:
+        """
+        Загружает кэш инстансов из конфигурации при старте приложения.
+        """
+        config = self.config_manager.get_config()
+        instances = config.cached_instances
+        timestamp = config.cache_timestamp
+        cache_ttl = config.cache_ttl
+
+        if instances and timestamp and (time.time() - timestamp < cache_ttl):
+            async with self.instances_lock:
+                self.instances[:] = instances
+            logger.info(f"Инстансы загружены из конфигурационного кэша ({len(instances)} шт.).")
+            self.update_event.set()
+            self.update_event.clear()
+        else:
+            logger.info("Кэш инстансов в конфигурации устарел или недействителен.")
 
     async def check_instance_alive(self, host: str, port: int, scan_timeout: int) -> Optional[Dict[str, Any]]:
         """
@@ -134,9 +156,17 @@ class InstanceManager:
                     break
 
         if has_changed:
+            # Обновляем кэш в конфигурации и сохраняем его
+            config = self.config_manager.get_config()
+            config.cached_instances = self.instances.copy()
+            config.cache_timestamp = time.time()
+            asyncio.create_task(self.config_manager.save_config())
+
             # Устанавливаем и сразу сбрасываем событие, чтобы разбудить ожидающие корутины
             self.update_event.set()
             self.update_event.clear()
+        else:
+            logger.debug("Изменений в инстансах не обнаружено, кэш не обновляется.")
 
         logger.info(f"Обновлено {len(self.instances)} инстансов")
 
@@ -188,6 +218,17 @@ class InstanceManager:
             Копия списка всех отслеживаемых инстансов с их статусами и версиями.
         """
         async with self.instances_lock:
+            # Проверяем кэш в конфигурации перед возвратом данных
+            config = self.config_manager.get_config()
+            cache_ttl = config.cache_ttl
+            
+            if config.cached_instances and (time.time() - config.cache_timestamp < cache_ttl):
+                logger.debug("Возвращаем данные инстансов из кэша конфигурации.")
+                return config.cached_instances.copy()
+            
+            logger.debug("Кэш инстансов в конфигурации устарел или отсутствует, выполняем обновление.")
+            # Если кэш устарел или отсутствует, выполняем обновление
+            await self.perform_update()
             return self.instances.copy()
 
     async def manual_update(self) -> List[Dict[str, Any]]:
