@@ -71,9 +71,13 @@ class InstanceManager:
         if instances and timestamp and (time.time() - timestamp < cache_ttl):
             async with self.instances_lock:
                 self.instances[:] = instances
-            logger.info("Инстансы загружены из конфигурационного кэша (%s шт.).", len(instances))
+            logger.info(
+                "Инстансы загружены из конфигурационного кэша (%s шт.).", len(instances)
+            )
         else:
-            logger.info("Кэш инстансов в конфигурации устарел или недействителен.") # pylint: disable=C0301
+            logger.info(
+                "Кэш инстансов в конфигурации устарел или недействителен."
+            ) # pylint: disable=C0301
 
     async def check_instance_alive(self, host: str, port: int,
                                    scan_timeout: int) -> Optional[Dict[str, Any]]:
@@ -283,8 +287,8 @@ class InstanceManager:
                 break # Завершаем цикл при отмене
             except ExceptionGroup as eg: # Перехватываем ExceptionGroup, если она была перевыброшена
                 logger.error("Ошибка в TaskGroup при проверке инстансов: %s", eg, exc_info=True)
-            except Exception as err: # Перехватываем другие непредвиденные исключения
-                logger.error("Непредвиденная ошибка в цикле обновлений: %s", err, exc_info=True)
+            except RuntimeError as e: # Перехватываем другие непредвиденные исключения
+                logger.error("Непредвиденная ошибка в цикле обновлений: %s", e, exc_info=True)
             # Ожидание интервала перед следующим обновлением
             logger.debug("Цикл обновлений: ожидание интервала %s секунд.", check_interval)
             await asyncio.sleep(check_interval)
@@ -330,14 +334,20 @@ class InstanceManager:
         if self._save_task and not self._save_task.done():
             self._save_task.cancel()
             try:
-                logger.debug("Ожидание завершения предыдущей задачи сохранения конфигурации (таймаут %s секунд).", config.debounce_save_delay + 1)
+                logger.debug("Ожидание завершения предыдущей задачи сохранения конфигурации (таймаут %s секунд).",
+                             config.debounce_save_delay + 1)
                 await asyncio.wait_for(self._save_task, timeout=config.debounce_save_delay + 1) # Даем немного больше времени
                 logger.debug("Предыдущая задача сохранения конфигурации завершена после отмены.")
             except asyncio.CancelledError:
                 logger.debug("Предыдущая задача сохранения конфигурации отменена.")
             except asyncio.TimeoutError:
-                logger.warning("Предыдущая задача сохранения конфигурации не завершилась в течение таймаута (%s секунд) после отмены. Возможно, она все еще выполняется.", config.debounce_save_delay + 1)
-            except Exception as e:
+                logger.warning(
+                    "Предыдущая задача сохранения конфигурации не завершилась "
+                    "в течение таймаута (%s секунд) после отмены. "
+                    "Возможно, она все еще выполняется.",
+                    config.debounce_save_delay + 1
+                )
+            except (RuntimeError, asyncio.InvalidStateError) as e:
                 logger.error("Ошибка при отмене/завершении предыдущей задачи сохранения конфигурации: %s", e, exc_info=True)
 
         async def _save_task_coro():
@@ -349,10 +359,8 @@ class InstanceManager:
                 logger.info("Конфигурация успешно сохранена после задержки.")
             except asyncio.CancelledError:
                 logger.debug("Задача сохранения конфигурации отменена.")
-            except (OSError, TypeError, ValueError) as err:
-                logger.error("Ошибка при отложенном сохранении конфигурации: %s", err, exc_info=True)
-            except Exception as e:
-                logger.error("Непредвиденная ошибка в задаче сохранения конфигурации: %s", e, exc_info=True)
+            except (OSError, TypeError, ValueError, RuntimeError) as e:
+                logger.error("Ошибка при отложенном сохранении конфигурации: %s", e, exc_info=True)
 
         self._save_task = asyncio.create_task(_save_task_coro())
 
@@ -371,9 +379,13 @@ class InstanceManager:
             except asyncio.CancelledError:
                 logger.info("Задача сохранения конфигурации отменена при завершении работы.")
             except asyncio.TimeoutError:
-                logger.warning("Задача сохранения конфигурации не завершилась в течение 10 секунд после отмены при завершении работы. Возможно, она все еще выполняется.")
-            except Exception as e:
-                logger.error("Ошибка при отмене/завершении задачи сохранения конфигурации при завершении работы: %s", e, exc_info=True)
+                logger.warning(
+                    "Задача сохранения конфигурации не завершилась в течение 10 секунд "
+                    "после отмены при завершении работы. Возможно, она все еще выполняется."
+                )
+            except (RuntimeError, asyncio.InvalidStateError) as e:
+                logger.error("Ошибка при отмене/завершении задачи сохранения конфигурации при завершении работы: %s",
+                             e, exc_info=True)
 
     async def manual_update(self) -> List[Dict[str, Any]]:
         """

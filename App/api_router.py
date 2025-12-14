@@ -6,7 +6,7 @@
 """
 import asyncio
 import json
-from typing import Tuple
+from typing import Any, Tuple
 import logging
 
 from quart import Blueprint, jsonify, render_template, Response  # type: ignore
@@ -24,15 +24,17 @@ class ApiRouter:
     рендеринг UI и потоковую передачу данных через Server-Sent Events (SSE).
     """
 
-    def __init__(self, instance_manager: InstanceManager):
+    def __init__(self, instance_manager: InstanceManager, app_core: Any):
         """
         Инициализирует маршрутизатор API.
 
         Args:
             instance_manager (InstanceManager): Экземпляр класса InstanceManager,
                                                 предоставляющий методы для работы с данными.
+            app_core (Any): Экземпляр AppCore для доступа к _sse_tasks.
         """
         self.instance_manager = instance_manager
+        self.app_core = app_core # Сохраняем ссылку на AppCore
         # Инициализация blueprint с указанием пути к шаблонам
         self.blueprint = Blueprint('api', __name__, template_folder='../templates')
         self.setup_routes()
@@ -73,7 +75,14 @@ class ApiRouter:
         """
         async def generate():
             last_sent = None
-            logger.info("SSE-генератор запущен для нового клиента.")
+            current_task = asyncio.current_task()
+            if current_task:
+                self.app_core.add_sse_task(current_task)
+                logger.info("SSE-генератор запущен для нового клиента. Задача добавлена в отслеживание: %s",
+                            current_task.get_name())
+            else:
+                logger.warning("Не удалось получить текущую задачу SSE-генератора.")
+
             try:
                 while True:
                     # Ожидание сигнала о новых данных от менеджера инстансов с таймаутом
@@ -84,7 +93,6 @@ class ApiRouter:
                     except asyncio.TimeoutError:
                         # Таймаут истек, продолжаем цикл для проверки отмены
                         logger.debug("SSE-генератор: таймаут ожидания события, проверка отмены.")
-                        pass # Продолжаем, чтобы проверить отмену задачи
 
                     # Получение актуальных данных
                     data = await self.instance_manager.get_instances()
@@ -108,12 +116,19 @@ class ApiRouter:
             except asyncio.CancelledError:
                 # Ожидаемое исключение при закрытии соединения клиентом (браузером или Uvicorn)
                 logger.info("SSE-соединение для /api/instances отменено.")
-            except Exception as e:
+            except RuntimeError as e:
                 logger.error("Непредвиденная ошибка в SSE-генераторе: %s", e, exc_info=True)
             finally:
-                logger.info("Завершение работы SSE-генератора.")
+                if current_task:
+                    self.app_core.remove_sse_task(current_task)
+                    logger.info("SSE-генератор завершен. Задача удалена из отслеживания: %s", current_task.get_name())
+                else:
+                    logger.debug("SSE-генератор завершен (задача не была в отслеживании или не найдена).")
 
-        return Response(generate(), mimetype='text/event-stream')
+        response = Response(generate(), mimetype='text/event-stream')
+        # Добавляем заголовок Connection: close, чтобы явно указать клиенту закрыть соединение
+        response.headers['Connection'] = 'close'
+        return response
 
     async def api_update_instances(self) -> Response:
         """
