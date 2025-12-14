@@ -96,7 +96,7 @@ class AppCore:
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:
                 # Синхронная загрузка кэша при старте приложения
-                await self.instance_manager._load_initial_cache()
+                await self.instance_manager.load_initial_cache()
                 # Запускаем цикл обновлений как фоновую задачу asyncio
                 self._update_task = asyncio.create_task(self.instance_manager.async_update_loop())
 
@@ -116,12 +116,8 @@ class AppCore:
                     logger.info("Фоновая задача обновления инстансов отменена.")
             # Принудительно сохраняем конфигурацию при завершении работы
             # Убеждаемся, что все отложенные сохранения завершены или отменены
-            if self.instance_manager and self.instance_manager._save_task and not self.instance_manager._save_task.done():  # noqa: E501
-                self.instance_manager._save_task.cancel()
-                try:
-                    await self.instance_manager._save_task
-                except asyncio.CancelledError:
-                    pass # Ожидаемое исключение при отмене
+            if self.instance_manager:
+                await self.instance_manager.cancel_pending_save_task()
             # Обновляем кэш в конфигурации из instance_manager перед сохранением
             if self.instance_manager:
                 config = self.config_manager.get_config()

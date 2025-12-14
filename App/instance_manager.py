@@ -54,7 +54,7 @@ class InstanceManager:
         # Загрузка кэша из конфигурации при инициализации (теперь синхронно из AppCore)
         # asyncio.create_task(self._load_initial_cache())
 
-    async def _load_initial_cache(self) -> None:
+    async def load_initial_cache(self) -> None:
         """
         Загружает кэш инстансов из конфигурации при старте приложения.
 
@@ -306,6 +306,8 @@ class InstanceManager:
             return self.instances.copy()
 
     async def _debounce_save_config(self, delay: float = 5.0) -> None:
+        # Этот метод остается защищенным, так как он является внутренней деталью реализации debounce.
+        # Внешний код не должен напрямую управлять _save_task.
         """
         Откладывает сохранение конфигурации для предотвращения слишком частых записей на диск.
 
@@ -333,6 +335,18 @@ class InstanceManager:
                 logger.error("Ошибка при отложенном сохранении конфигурации: %s", err)
 
         self._save_task = asyncio.create_task(_save_task_coro())
+
+    async def cancel_pending_save_task(self) -> None:
+        """
+        Отменяет активную задачу сохранения конфигурации, если она существует и еще не завершена.
+        Используется при завершении работы приложения для корректной очистки.
+        """
+        if self._save_task and not self._save_task.done():
+            self._save_task.cancel()
+            try:
+                await self._save_task
+            except asyncio.CancelledError:
+                logger.info("Задача сохранения конфигурации отменена при завершении работы.")
 
     async def manual_update(self) -> List[Dict[str, Any]]:
         """

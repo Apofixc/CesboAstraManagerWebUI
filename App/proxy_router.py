@@ -118,7 +118,7 @@ class ProxyRouter:
         try:
             _, port_str = addr.split(':')
             port = int(port_str)
-            if not (1 <= port <= 65535):
+            if not 1 <= port <= 65535:
                 raise ValueError("Порт должен быть в диапазоне 1-65535")
         except ValueError:
             return None, ({'error': 'Неверный формат "astra_addr" (ожидается host:port с валидным портом)'}, 400)
@@ -156,7 +156,7 @@ class ProxyRouter:
                     return res.json(), res.status_code
                 # Если не JSON, но статус 200, возвращаем текст как есть
                 return {'message': res.text}, res.status_code # Возвращаем текст ответа
-            
+
             # Если статус не 200, но не ошибка подключения/таймаута,
             # пытаемся вернуть JSON-ответ от удаленного сервера, если он есть
             if 'application/json' in content_type:
@@ -165,7 +165,7 @@ class ProxyRouter:
                 except ValueError:
                     logger.warning("Неверный JSON-ответ от удаленного сервера со статусом %s",
                                    res.status_code)
-            
+
             # В остальных случаях возвращаем общий текст ошибки
             logger.error("Ошибка на удаленном сервере: Статус %s, Ответ: %s",
                          res.status_code, res.text)

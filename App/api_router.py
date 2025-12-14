@@ -84,20 +84,21 @@ class ApiRouter:
                     if last_sent != data:
                         # Используйте DEBUG вместо INFO для частых сообщений
                         logger.debug("Отправка обновления инстансов через SSE")
-                        yield f"data: {json.dumps(data)}\n\n"
-                        last_sent = data
+                        try:
+                            json_data = json.dumps(data)
+                            yield f"data: {json_data}\n\n"
+                            last_sent = data
+                        except TypeError as json_err:
+                            logger.error("Ошибка сериализации JSON в SSE-генераторе: %s", json_err, exc_info=True)
+                            error_message = json.dumps({
+                                'error': 'Ошибка сериализации данных',
+                                'message': 'Не удалось преобразовать данные в JSON.'
+                            })
+                            yield f"event: error\ndata: {error_message}\n\n"
 
             except asyncio.CancelledError:
                 # Ожидаемое исключение при закрытии соединения клиентом (браузером)
                 logger.info("SSE-соединение для /api/instances отменено клиентом.")
-            except (RuntimeError, TypeError, ValueError) as err:
-                logger.error("Критическая ошибка в SSE-генераторе: %s", err, exc_info=True)
-                # Отправка сообщения об ошибке клиенту SSE
-                error_message = json.dumps({
-                    'error': 'Ошибка в потоке обновлений',
-                    'message': 'Произошла непредвиденная ошибка.'
-                })
-                yield f"event: error\ndata: {error_message}\n\n"
             finally:
                 logger.debug("Завершение работы SSE-генератора.")
 
