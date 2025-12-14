@@ -7,7 +7,7 @@
 """
 import asyncio
 import logging
-import time # Добавляем импорт time
+import time
 from typing import Optional
 
 import httpx  # type: ignore

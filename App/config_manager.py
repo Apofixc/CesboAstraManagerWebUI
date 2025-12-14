@@ -5,7 +5,7 @@
 валидации, загрузки и сохранения настроек приложения из JSON-файла.
 Использует Pydantic для строгой типизации и автоматической валидации.
 """
-import ipaddress # Добавляем импорт ipaddress
+import ipaddress
 import json
 import logging
 import re
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import aiofiles  # type: ignore
-from pydantic import (BaseModel, Field, ValidationError, field_validator,
+from pydantic import (BaseModel, Field, ValidationError, field_validator, # type: ignore
                       model_validator) # type: ignore
 
 logger = logging.getLogger(__name__)
