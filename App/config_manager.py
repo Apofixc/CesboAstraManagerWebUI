@@ -231,15 +231,6 @@ class ConfigManager:
         Returns:
             AppConfig: Валидный объект `AppConfig`, готовый к использованию.
         """
-        if not self.config_file_path.exists():
-            logger.info("Файл %s не найден. Создаём с дефолтными данными.",
-                        self.config_file_path)
-            default_config: AppConfig = AppConfig.model_validate({})
-            async with aiofiles.open(self.config_file_path, mode='w',
-                                     encoding='utf-8') as f:
-                await f.write(default_config.model_dump_json(indent=4))
-            return default_config
-
         try:
             async with aiofiles.open(self.config_file_path, mode='r',
                                      encoding='utf-8') as f:
@@ -247,8 +238,27 @@ class ConfigManager:
                 data: Dict[str, Any] = json.loads(content)
             config: AppConfig = AppConfig.model_validate(data)
             return config
+        except FileNotFoundError:
+            logger.info("Файл конфигурации %s не найден. Создаём с дефолтными данными.",
+                        self.config_file_path)
+            default_config: AppConfig = AppConfig.model_validate({})
+            try:
+                async with aiofiles.open(self.config_file_path, mode='w',
+                                         encoding='utf-8') as f:
+                    await f.write(default_config.model_dump_json(indent=4))
+                return default_config
+            except IOError as write_err:
+                logger.error("Ошибка при создании дефолтного файла конфигурации %s: %s",
+                             self.config_file_path, write_err, exc_info=True)
+                # Если не удалось создать файл, возвращаем дефолтную конфигурацию
+                return AppConfig.model_validate({})
         except (json.JSONDecodeError, ValidationError) as err:
-            logger.error("Ошибка загрузки/валидации: %s. Используем дефолты.", err)
+            logger.error("Ошибка загрузки/валидации файла конфигурации %s: %s. Используем дефолты.",
+                         self.config_file_path, err, exc_info=True)
+            return AppConfig.model_validate({})
+        except IOError as err: # Перехват ошибок ввода/вывода, кроме FileNotFoundError
+            logger.error("Ошибка ввода/вывода при загрузке конфигурации %s: %s. Используем дефолты.",
+                         self.config_file_path, err, exc_info=True)
             return AppConfig.model_validate({})
 
     def get_config(self) -> AppConfig:
@@ -283,5 +293,6 @@ class ConfigManager:
                                      encoding='utf-8') as f:
                 await f.write(self.config.model_dump_json(indent=4))
         except IOError as err:
-            logger.error("Ошибка сохранения: %s", err)
-            raise
+            logger.error("Ошибка сохранения файла конфигурации %s: %s",
+                         self.config_file_path, err, exc_info=True)
+            raise # Перевыбрасываем, так как это критическая ошибка сохранения

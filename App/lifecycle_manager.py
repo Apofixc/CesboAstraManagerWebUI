@@ -1,3 +1,9 @@
+"""
+Модуль для управления жизненным циклом приложения Astra Web-UI.
+
+Отвечает за инициализацию и завершение работы менеджеров, роутеров,
+HTTP-клиентов и фоновых задач, обеспечивая корректный запуск и остановку приложения.
+"""
 import asyncio
 import time
 import logging
@@ -21,6 +27,14 @@ class LifecycleManager:
     """
 
     def __init__(self, app: Quart, config_manager: ConfigManager, sse_tasks: Set[asyncio.Task]):
+        """
+        Инициализирует LifecycleManager.
+
+        Args:
+            app (Quart): Экземпляр приложения Quart.
+            config_manager (ConfigManager): Экземпляр ConfigManager для доступа к конфигурации.
+            sse_tasks (Set[asyncio.Task]): Набор для отслеживания активных SSE задач.
+        """
         self.app = app
         self.config_manager = config_manager
         self._sse_tasks = sse_tasks
@@ -31,6 +45,21 @@ class LifecycleManager:
         self.http_client_instance_manager: Optional[httpx.AsyncClient] = None
         self.http_client_proxy: Optional[httpx.AsyncClient] = None
         self._update_task: Optional[asyncio.Task] = None
+
+    def set_app_and_sse_tasks(self, app: Quart, sse_tasks: Set[asyncio.Task]):
+        """
+        Устанавливает экземпляр приложения Quart и набор SSE задач.
+
+        Этот метод используется для внедрения зависимостей, которые становятся
+        доступными только после инициализации AppCore.
+
+        Args:
+            app (Quart): Экземпляр приложения Quart.
+            sse_tasks (Set[asyncio.Task]): Набор для отслеживания активных SSE задач.
+        """
+        self.app = app
+        self._sse_tasks = sse_tasks
+        logger.debug("Экземпляр Quart приложения и SSE задачи установлены в LifecycleManager.")
 
     def _create_http_client(self, timeout: float) -> httpx.AsyncClient:
         """Создает и возвращает асинхронный HTTP-клиент с заданным таймаутом."""
@@ -172,7 +201,15 @@ class LifecycleManager:
             logger.debug("ErrorHandler instance is present during shutdown.")
 
     async def startup(self, app_core_instance: Any):
-        """Выполняет операции запуска приложения."""
+        """
+        Выполняет операции запуска приложения.
+
+        Инициализирует конфигурацию, HTTP-клиенты, менеджеры и роутеры,
+        регистрирует Blueprints и запускает фоновый цикл обновлений.
+
+        Args:
+            app_core_instance (Any): Экземпляр AppCore для доступа к его свойствам.
+        """
         await self.config_manager.async_init()
         config = self.config_manager.get_config()
 
@@ -183,7 +220,11 @@ class LifecycleManager:
         logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
 
     async def shutdown(self):
-        """Выполняет операции завершения работы приложения."""
+        """
+        Выполняет операции завершения работы приложения.
+
+        Отменяет фоновые задачи, сохраняет кэш конфигурации и закрывает HTTP-клиенты.
+        """
         logger.info("Сервер останавливается: начало процесса завершения работы.")
 
         await self._cancel_update_task()

@@ -7,16 +7,18 @@
 import logging
 from typing import Optional
 
-def setup_logging(level=logging.INFO, log_file: Optional[str] = None):
+def setup_logging(debug: bool = False, log_file: Optional[str] = None):
     """
     Настраивает базовое логирование для приложения.
 
     Args:
-        level (int): Уровень логирования (например, logging.INFO, logging.DEBUG).
-                     По умолчанию logging.INFO.
+        debug (bool): Если True, уровень логирования устанавливается в DEBUG, иначе в INFO.
+                      По умолчанию False.
         log_file (Optional[str]): Путь к файлу для записи логов. Если None, логи
                                   выводятся в консоль.
     """
+    level = logging.DEBUG if debug else logging.INFO
+
     handlers = []
     if log_file:
         handlers.append(logging.FileHandler(log_file, encoding='utf-8'))

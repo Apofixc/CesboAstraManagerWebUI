@@ -10,7 +10,7 @@
     "cache_ttl": 10,
     "instance_alive_cache_ttl": 5,
     "cached_instances": [],
-    "cache_timestamp": 1765750458.2490895,
+    "cache_timestamp": 1765756098.672484,
     "cors_allow_origin": "*",
     "debounce_save_delay": 5.0
 }

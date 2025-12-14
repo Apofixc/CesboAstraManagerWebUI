@@ -30,9 +30,9 @@ class ProxyRouter:
         Инициализирует ProxyRouter.
 
         Args:
-            config_manager (ConfigManager): Экземпляр ConfigManager для доступа к настройкам 
+            config_manager (ConfigManager): Экземпляр ConfigManager для доступа к настройкам
                                             приложения (например, таймаутам).
-            instance_manager (InstanceManager): Экземпляр InstanceManager для проверки статуса 
+            instance_manager (InstanceManager): Экземпляр InstanceManager для проверки статуса
                                                 целевых инстансов Astra.
             http_client (httpx.AsyncClient): Асинхронный HTTP-клиент для выполнения запросов.
         """

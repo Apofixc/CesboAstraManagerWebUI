@@ -6,11 +6,9 @@
 а также настройку событий жизненного цикла приложения.
 """
 import asyncio
-import time
-from typing import Any, Optional
 import logging
+from typing import Optional
 
-import httpx  # type: ignore
 from quart import Quart  # type: ignore
 from quart_cors import cors  # type: ignore
 
@@ -32,18 +30,19 @@ class AppCore:
     и настройку жизненного цикла приложения Quart.
     """
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_manager: ConfigManager, lifecycle_manager: LifecycleManager):
         """
         Инициализирует основные компоненты приложения и сервер Quart.
 
         Args:
-            config_path (Optional[str]): Путь к файлу конфигурации.
-                                        Если `None`, используются дефолтные настройки.
+            config_manager (ConfigManager): Экземпляр ConfigManager.
+            lifecycle_manager (LifecycleManager): Экземпляр LifecycleManager.
         """
-        self.config_manager: ConfigManager = ConfigManager(config_path)
+        self.config_manager: ConfigManager = config_manager
+        self.lifecycle_manager: LifecycleManager = lifecycle_manager
         self.app: Quart = Quart("Astra Web-UI")
         self._sse_tasks: set[asyncio.Task] = set() # Для отслеживания активных SSE задач
-        self.lifecycle_manager: LifecycleManager = LifecycleManager(self.app, self.config_manager, self._sse_tasks)
+        self.lifecycle_manager.set_app_and_sse_tasks(self.app, self._sse_tasks)
 
     def add_sse_task(self, task: asyncio.Task):
         """Добавляет SSE задачу в отслеживаемый набор."""
@@ -60,18 +59,42 @@ class AppCore:
 
     @property
     def instance_manager(self) -> Optional[InstanceManager]:
+        """
+        Возвращает экземпляр InstanceManager из LifecycleManager.
+
+        Returns:
+            Optional[InstanceManager]: Экземпляр InstanceManager или None.
+        """
         return self.lifecycle_manager.instance_manager
 
     @property
     def proxy_router_instance(self) -> Optional[ProxyRouter]:
+        """
+        Возвращает экземпляр ProxyRouter из LifecycleManager.
+
+        Returns:
+            Optional[ProxyRouter]: Экземпляр ProxyRouter или None.
+        """
         return self.lifecycle_manager.proxy_router_instance
 
     @property
     def api_router_instance(self) -> Optional[ApiRouter]:
+        """
+        Возвращает экземпляр ApiRouter из LifecycleManager.
+
+        Returns:
+            Optional[ApiRouter]: Экземпляр ApiRouter или None.
+        """
         return self.lifecycle_manager.api_router_instance
 
     @property
     def error_handler(self) -> Optional[ErrorHandler]:
+        """
+        Возвращает экземпляр ErrorHandler из LifecycleManager.
+
+        Returns:
+            Optional[ErrorHandler]: Экземпляр ErrorHandler или None.
+        """
         return self.lifecycle_manager.error_handler
 
     def create_app(self) -> Quart:
@@ -110,5 +133,7 @@ class AppCore:
         @app.after_serving
         async def shutdown_event():
             """Обработчик события после остановки сервера."""
+            await self.lifecycle_manager.shutdown()
+            logger.info("Сервер остановлен: процесс завершения работы завершен.")
             await self.lifecycle_manager.shutdown()
             logger.info("Сервер остановлен: процесс завершения работы завершен.")
