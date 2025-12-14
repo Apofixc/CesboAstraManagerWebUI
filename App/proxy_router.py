@@ -116,10 +116,12 @@ class ProxyRouter:
             return None, ({'error': 'Неверный или отсутствующий "astra_addr"'}, 400)
 
         try:
-            _, port = addr.split(':')
-            int(port)
+            _, port_str = addr.split(':')
+            port = int(port_str)
+            if not (1 <= port <= 65535):
+                raise ValueError("Порт должен быть в диапазоне 1-65535")
         except ValueError:
-            return None, ({'error': 'Неверный формат "astra_addr" (ожидается host:port)'}, 400)
+            return None, ({'error': 'Неверный формат "astra_addr" (ожидается host:port с валидным портом)'}, 400)
 
         if not await self.instance_manager.check_instance_online(addr):
             return None, ({'error': f'Инстанс {addr} не найден или оффлайн'}, 404)

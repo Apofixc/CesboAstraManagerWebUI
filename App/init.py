@@ -7,6 +7,7 @@
 """
 import asyncio
 import logging
+import time # Добавляем импорт time
 from typing import Optional
 
 import httpx  # type: ignore
@@ -14,7 +15,7 @@ from quart import Quart  # type: ignore
 from quart_cors import cors  # type: ignore
 
 from App.api_router import ApiRouter
-from App.config_manager import ConfigManager, AppConfig # Добавляем импорт AppConfig
+from App.config_manager import ConfigManager
 from App.error_handler import ErrorHandler
 from App.instance_manager import InstanceManager
 from App.proxy_router import ProxyRouter
@@ -121,12 +122,25 @@ class AppCore:
                     await self.instance_manager._save_task
                 except asyncio.CancelledError:
                     pass # Ожидаемое исключение при отмене
-            await self.config_manager.save_config() # Сохраняем актуальную конфигурацию
+            # Обновляем кэш в конфигурации из instance_manager перед сохранением
+            if self.instance_manager:
+                config = self.config_manager.get_config()
+                async with self.instance_manager.instances_lock:
+                    config.cached_instances = self.instance_manager.instances.copy()
+                config.cache_timestamp = time.time() # Обновляем временную метку
+            await self.config_manager.save_config()
             # Закрываем клиенты только если они были инициализированы
             if self.http_client_instance_manager:
                 await self.http_client_instance_manager.aclose()
             if self.http_client_proxy:
                 await self.http_client_proxy.aclose()
+            # Добавляем явные проверки на None для других менеджеров (для типобезопасности)
+            if self.api_router_instance:
+                logger.debug("ApiRouter instance is present during shutdown.")
+            if self.proxy_router_instance:
+                logger.debug("ProxyRouter instance is present during shutdown.")
+            if self.error_handler:
+                logger.debug("ErrorHandler instance is present during shutdown.")
 
         logger.info("Сервер инициализирован.")
         return app
