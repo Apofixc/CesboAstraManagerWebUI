@@ -10,15 +10,22 @@ import logging
 
 # Импорт основного класса, управляющего зависимостями и конфигурацией приложения
 from App.init import AppCore
+from App.config_manager import ConfigManager # Импортируем ConfigManager
+from quart import Quart # Импортируем Quart для аннотации типа
 
 # Настройка базового уровня логирования и формата сообщений
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Инициализация ядра приложения с указанием пути к файлу конфигурации
-app_core = AppCore(config_path="config.json")
+# Создаем экземпляр ConfigManager
+config_manager_instance = ConfigManager(config_file_path="config.json")
+# Синхронно загружаем конфигурацию
+initial_config = config_manager_instance.load_config_sync()
 
-def app():
+# Инициализация ядра приложения с уже загруженным ConfigManager
+app_core = AppCore(config_manager=config_manager_instance)
+
+def app() -> Quart: # Указываем тип возвращаемого значения
     """
     Создает и возвращает экземпляр Quart-приложения для Uvicorn.
 

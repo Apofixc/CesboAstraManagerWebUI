@@ -294,3 +294,28 @@ class ConfigManager:
         except IOError as err:
             logger.error("Ошибка сохранения: %s", err)
             raise
+
+    def load_config_sync(self) -> AppConfig:
+        """
+        Синхронно загружает конфигурацию из JSON-файла.
+
+        Этот метод предназначен для использования в синхронных контекстах,
+        где асинхронная инициализация невозможна или нежелательна.
+
+        Returns:
+            AppConfig: Валидный объект `AppConfig`, готовый к использованию.
+        """
+        if not self.config_file_path.exists():
+            logger.info("Файл %s не найден. Создаём с дефолтными данными.", self.config_file_path)
+            default_config: AppConfig = AppConfig.model_validate({})
+            self.config_file_path.write_text(default_config.model_dump_json(indent=4), encoding='utf-8')
+            return default_config
+
+        try:
+            content = self.config_file_path.read_text(encoding='utf-8')
+            data: Dict[str, Any] = json.loads(content)
+            config: AppConfig = AppConfig(**data)
+            return config
+        except (json.JSONDecodeError, ValidationError) as err:
+            logger.error("Ошибка загрузки/валидации: %s. Используем дефолты.", err)
+            return AppConfig.model_validate({})

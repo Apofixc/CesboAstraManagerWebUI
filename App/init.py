@@ -14,7 +14,7 @@ from quart import Quart  # type: ignore
 from quart_cors import cors  # type: ignore
 
 from App.api_router import ApiRouter
-from App.config_manager import ConfigManager
+from App.config_manager import ConfigManager, AppConfig # Добавляем импорт AppConfig
 from App.error_handler import ErrorHandler
 from App.instance_manager import InstanceManager
 from App.proxy_router import ProxyRouter
@@ -30,15 +30,14 @@ class AppCore:
     и настройку жизненного цикла приложения Quart.
     """
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_manager: ConfigManager):
         """
         Инициализирует основные компоненты приложения и сервер Quart.
 
         Args:
-            config_path (Optional[str]): Путь к файлу конфигурации.
-                                        Если `None`, используются дефолтные настройки.
+            config_manager (ConfigManager): Экземпляр ConfigManager с загруженной конфигурацией.
         """
-        self.config_manager: ConfigManager = ConfigManager(config_path)
+        self.config_manager: ConfigManager = config_manager
         # Эти менеджеры будут инициализированы позже в create_app
         self.instance_manager: Optional[InstanceManager] = None
         self.proxy_router_instance: Optional[ProxyRouter] = None
@@ -46,14 +45,6 @@ class AppCore:
         self.app: Quart = Quart("Astra Web-UI")
         self.error_handler: Optional[ErrorHandler] = None
         self.http_client: Optional[httpx.AsyncClient] = None
-
-    async def async_init(self) -> None:
-        """
-        Выполняет асинхронную инициализацию ядра приложения.
-
-        Загружает конфигурацию после создания объекта `AppCore`.
-        """
-        await self.config_manager.async_init()
 
     def create_app(self) -> Quart:
         """
@@ -67,9 +58,7 @@ class AppCore:
         """
         app = self.app
 
-        # Асинхронная инициализация конфигурации перед использованием
-        # Это гарантирует, что конфигурация полностью загружена до инициализации других компонентов.
-
+        # Конфигурация уже загружена и доступна через self.config_manager.get_config()
         config = self.config_manager.get_config()
 
         # Инициализация httpx.AsyncClient с таймаутом из конфигурации
@@ -101,7 +90,6 @@ class AppCore:
 
             Запускает фоновую задачу обновления инстансов.
             """
-            await self.async_init()
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:
                 # Запускаем цикл обновлений как фоновую задачу asyncio
