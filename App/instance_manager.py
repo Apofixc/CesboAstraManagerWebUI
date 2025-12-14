@@ -49,9 +49,11 @@ class InstanceManager:
         # Кэш для результатов check_instance_alive: {(host, port): (result, timestamp)}
         self._instance_alive_cache: Dict[Tuple[str, int],
                                          Tuple[Optional[Dict[str, Any]], float]] = {}
+        # Блокировка для защиты _instance_alive_cache
+        self._instance_alive_cache_lock: Lock = Lock()
 
-        # Загрузка кэша из конфигурации при инициализации
-        asyncio.create_task(self._load_initial_cache())
+        # Загрузка кэша из конфигурации при инициализации (теперь синхронно из AppCore)
+        # asyncio.create_task(self._load_initial_cache())
 
     async def _load_initial_cache(self) -> None:
         """
@@ -102,20 +104,22 @@ class InstanceManager:
                 logger.debug("Возвращаем кэшированный результат для %s", addr)
                 return cached_result
 
-        result = None
-        try:
-            res = await self.http_client.get(f'http://{host}:{port}/api/health',
-                                             timeout=scan_timeout)
-            if res.status_code == 200:
-                try:
-                    result = res.json()
-                except ValueError:
-                    logger.warning("Неверный JSON-ответ от %s", addr)
-        except httpx.RequestError as err:
-            logger.warning("Не удалось подключиться к %s: %s", addr, err)
+        async with self._instance_alive_cache_lock:
+            result = None
+            try:
+                res = await self.http_client.get(f'http://{host}:{port}/api/health',
+                                                 timeout=scan_timeout)
 
-        # Кэшируем результат
-        self._instance_alive_cache[cache_key] = (result, time.time())
+                if res.status_code == 200:
+                    try:
+                        result = res.json()
+                    except ValueError:
+                        logger.warning("Неверный JSON-ответ от %s", addr)
+            except httpx.RequestError as err:
+                logger.warning("Не удалось подключиться к %s: %s", addr, err)
+                
+            # Кэшируем результат
+            self._instance_alive_cache[cache_key] = (result, time.time())
         return result
 
     def _get_updated_instance_data(self, addr: str, srv_type: str, result: Any,
@@ -159,17 +163,21 @@ class InstanceManager:
         адресов, обновляет внутреннее состояние `self.instances` и устанавливает
         `self.update_event` при обнаружении изменений.
         """
-        config = self.config_manager.get_config()
-        async with self.instances_lock:
-            old_instances = {inst['addr']: inst for inst in self.instances}
-        temp_instances: Dict[str, Dict[str, Any]] = {}
+        try:
+            config = self.config_manager.get_config()
+            async with self.instances_lock:
+                old_instances = {inst['addr']: inst for inst in self.instances}
+            temp_instances: Dict[str, Dict[str, Any]] = {}
 
-        target_addresses = self._get_target_addresses(config)
+            target_addresses = self._get_target_addresses(config)
 
-        tasks = [self.check_instance_alive(srv_host, srv_port, config.scan_timeout)
-                 for srv_host, srv_port, _ in target_addresses]
+            tasks = [self.check_instance_alive(srv_host, srv_port, config.scan_timeout)
+                     for srv_host, srv_port, _ in target_addresses]
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            logger.info("Задача perform_update отменена.")
+            raise # Перевыбрасываем исключение, чтобы вызывающий код мог его обработать
 
         for (srv_host, srv_port, srv_type), result in zip(target_addresses, results):
             addr = f'{srv_host}:{srv_port}'
@@ -210,6 +218,7 @@ class InstanceManager:
             has_changed = True
 
         if has_changed:
+            logger.info("Обнаружены изменения в инстансах, кэш обновлен.")
             # Обновляем кэш в конфигурации и сохраняем его
             config.cached_instances = self.instances.copy()
             config.cache_timestamp = time.time()
@@ -255,18 +264,16 @@ class InstanceManager:
         """
         config = self.config_manager.get_config()
         check_interval = config.check_interval
-
-        # Запускаем первое обновление сразу при старте цикла
-        await self.perform_update()
-
         while True:
             try:
-                # Ожидание интервала перед следующим обновлением
-                await asyncio.sleep(check_interval)
                 await self.perform_update()
+            except asyncio.CancelledError:
+                logger.info("Цикл обновлений инстансов отменен.")
+                break
             except Exception as err:  # pylint: disable=W0718
                 # Логирование ошибок цикла, чтобы он не прерывался полностью
                 logger.error("Ошибка в цикле обновлений: %s", err)
+            # Ожидание интервала перед следующим обновлением
             await asyncio.sleep(check_interval)
 
     async def check_instance_online(self, addr: str) -> bool:

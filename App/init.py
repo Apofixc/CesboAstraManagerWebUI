@@ -44,7 +44,8 @@ class AppCore:
         self.api_router_instance: Optional[ApiRouter] = None
         self.app: Quart = Quart("Astra Web-UI")
         self.error_handler: Optional[ErrorHandler] = None
-        self.http_client: Optional[httpx.AsyncClient] = None
+        self.http_client_instance_manager: Optional[httpx.AsyncClient] = None
+        self.http_client_proxy: Optional[httpx.AsyncClient] = None
 
     def create_app(self) -> Quart:
         """
@@ -61,14 +62,17 @@ class AppCore:
         # Конфигурация уже загружена и доступна через self.config_manager.get_config()
         config = self.config_manager.get_config()
 
-        # Инициализация httpx.AsyncClient с таймаутом из конфигурации
-        self.http_client = httpx.AsyncClient(timeout=config.scan_timeout)
+        # Инициализация httpx.AsyncClient для InstanceManager с таймаутом сканирования
+        self.http_client_instance_manager = httpx.AsyncClient(timeout=config.scan_timeout)
+        # Инициализация httpx.AsyncClient для ProxyRouter с общим таймаутом (или None для бесконечного)
+        # Здесь можно использовать другой таймаут, если требуется
+        self.http_client_proxy = httpx.AsyncClient()
 
         # Инициализация компонентов, которые зависят от менеджеров
-        self.instance_manager = InstanceManager(self.config_manager, self.http_client)
+        self.instance_manager = InstanceManager(self.config_manager, self.http_client_instance_manager)
         self.proxy_router_instance = ProxyRouter(self.config_manager,
                                                  self.instance_manager,
-                                                 self.http_client)
+                                                 self.http_client_proxy)
         self.api_router_instance = ApiRouter(self.instance_manager)
 
         # Middleware: Включение CORS для всех источников
@@ -92,6 +96,8 @@ class AppCore:
             """
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:
+                # Синхронная загрузка кэша при старте приложения
+                await self.instance_manager._load_initial_cache()
                 # Запускаем цикл обновлений как фоновую задачу asyncio
                 asyncio.create_task(self.instance_manager.async_update_loop())
 
@@ -103,8 +109,12 @@ class AppCore:
             Закрывает HTTP-клиент.
             """
             logger.info("Сервер останавливается.")
-            if self.http_client:
-                await self.http_client.aclose()
+            # Принудительно сохраняем конфигурацию при завершении работы
+            await self.config_manager.save_config()
+            if self.http_client_instance_manager:
+                await self.http_client_instance_manager.aclose()
+            if self.http_client_proxy:
+                await self.http_client_proxy.aclose()
 
         logger.info("Сервер инициализирован.")
         return app
