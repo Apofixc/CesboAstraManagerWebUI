@@ -222,14 +222,6 @@ class ConfigManager:
         self.config = AppConfig.model_validate({})  # Инициализируем дефолтной конфигурацией,
                                                     # будет загружена в async_init
 
-    async def async_init(self) -> None:
-        """
-        Выполняет асинхронную инициализацию менеджера конфигурации.
-
-        Загружает конфигурацию из файла после создания объекта.
-        """
-        self.config = await self._load_config()
-
     async def _load_config(self) -> AppConfig:
         """
         Загружает конфигурацию из JSON-файла.
@@ -295,7 +287,7 @@ class ConfigManager:
             logger.error("Ошибка сохранения: %s", err)
             raise
 
-    def load_config_sync(self) -> AppConfig:
+    def init_config(self) -> AppConfig:
         """
         Синхронно загружает конфигурацию из JSON-файла.
 

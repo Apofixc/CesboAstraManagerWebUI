@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Создаем экземпляр ConfigManager
 config_manager_instance = ConfigManager(config_file_path="config.json")
 # Синхронно загружаем конфигурацию
-initial_config = config_manager_instance.load_config_sync()
+initial_config = config_manager_instance.init_config()
 
 # Инициализация ядра приложения с уже загруженным ConfigManager
 app_core = AppCore(config_manager=config_manager_instance)
