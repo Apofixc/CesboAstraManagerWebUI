@@ -10,8 +10,8 @@ from typing import Any, Dict, Optional, Tuple
 import httpx # type: ignore
 from quart import Blueprint, request, Response, jsonify # type: ignore
 
-from astra_manager.App.config_manager import ConfigManager
-from astra_manager.App.instance_manager import InstanceManager
+from .config_manager import ConfigManager
+from .instance_manager import InstanceManager
 
 logger = logging.getLogger(__name__)
 

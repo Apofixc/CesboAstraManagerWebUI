@@ -15,7 +15,7 @@ import logging
 
 import httpx  # type: ignore
 
-from astra_manager.App.config_manager import ConfigManager
+from .config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 

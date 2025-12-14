@@ -11,7 +11,7 @@ import logging
 
 from quart import Blueprint, jsonify, render_template, Response  # type: ignore
 
-from astra_manager.App.instance_manager import InstanceManager
+from .instance_manager import InstanceManager
 
 logger = logging.getLogger(__name__)
 
