@@ -30,14 +30,15 @@ class AppCore:
     и настройку жизненного цикла приложения Quart.
     """
 
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(self, config_path: Optional[str] = None):
         """
         Инициализирует основные компоненты приложения и сервер Quart.
 
         Args:
-            config_manager (ConfigManager): Экземпляр ConfigManager с загруженной конфигурацией.
+            config_path (Optional[str]): Путь к файлу конфигурации.
+                                        Если `None`, используются дефолтные настройки.
         """
-        self.config_manager: ConfigManager = config_manager
+        self.config_manager: ConfigManager = ConfigManager(config_path)
         # Эти менеджеры будут инициализированы позже в create_app
         self.instance_manager: Optional[InstanceManager] = None
         self.proxy_router_instance: Optional[ProxyRouter] = None
@@ -47,6 +48,14 @@ class AppCore:
         self.http_client_instance_manager: Optional[httpx.AsyncClient] = None
         self.http_client_proxy: Optional[httpx.AsyncClient] = None
         self._update_task: Optional[asyncio.Task] = None
+
+    async def async_init(self) -> None:
+        """
+        Выполняет асинхронную инициализацию ядра приложения.
+
+        Загружает конфигурацию после создания объекта `AppCore`.
+        """
+        await self.config_manager.async_init()
 
     def create_app(self) -> Quart:
         """
@@ -95,6 +104,7 @@ class AppCore:
 
             Запускает фоновую задачу обновления инстансов.
             """
+            await self.async_init()
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:
                 # Синхронная загрузка кэша при старте приложения

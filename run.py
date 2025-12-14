@@ -17,13 +17,8 @@ from quart import Quart # Импортируем Quart для аннотации
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Создаем экземпляр ConfigManager
-config_manager_instance = ConfigManager(config_file_path="config.json")
-# Синхронно загружаем конфигурацию
-initial_config = config_manager_instance.init_config()
-
 # Инициализация ядра приложения с уже загруженным ConfigManager
-app_core = AppCore(config_manager=config_manager_instance)
+app_core = AppCore(config_path="config.json")
 
 def app() -> Quart: # Указываем тип возвращаемого значения
     """

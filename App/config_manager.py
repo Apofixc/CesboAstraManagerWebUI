@@ -222,6 +222,14 @@ class ConfigManager:
         self.config = AppConfig.model_validate({})  # Инициализируем дефолтной конфигурацией,
                                                     # будет загружена в async_init
 
+    async def async_init(self) -> None:
+        """
+        Выполняет асинхронную инициализацию менеджера конфигурации.
+
+        Загружает конфигурацию из файла после создания объекта.
+        """
+        self.config = await self._load_config()
+
     async def _load_config(self) -> AppConfig:
         """
         Загружает конфигурацию из JSON-файла.
@@ -263,18 +271,6 @@ class ConfigManager:
             return default_config
         return None # Возвращаем None, если файл существует, чтобы продолжить загрузку
 
-    def _handle_config_file_existence_sync(self) -> Optional[AppConfig]:
-        """
-        Обрабатывает существование файла конфигурации синхронно.
-        Если файл не найден, создает его с дефолтными значениями.
-        """
-        if not self.config_file_path.exists():
-            logger.info("Файл %s не найден. Создаём с дефолтными данными.", self.config_file_path)
-            default_config: AppConfig = AppConfig.model_validate({})
-            self.config_file_path.write_text(default_config.model_dump_json(indent=4), encoding='utf-8')
-            return default_config
-        return None # Возвращаем None, если файл существует, чтобы продолжить загрузку
-
     def get_config(self) -> AppConfig:
         """
         Возвращает текущий загруженный объект конфигурации.
@@ -309,26 +305,3 @@ class ConfigManager:
         except IOError as err:
             logger.error("Ошибка сохранения: %s", err)
             raise
-
-    def init_config(self) -> AppConfig:
-        """
-        Синхронно загружает конфигурацию из JSON-файла.
-
-        Этот метод предназначен для использования в синхронных контекстах,
-        где асинхронная инициализация невозможна или нежелательна.
-
-        Returns:
-            AppConfig: Валидный объект `AppConfig`, готовый к использованию.
-        """
-        default_or_none = self._handle_config_file_existence_sync()
-        if default_or_none:
-            return default_or_none
-
-        try:
-            content = self.config_file_path.read_text(encoding='utf-8')
-            data: Dict[str, Any] = json.loads(content)
-            config: AppConfig = AppConfig.model_validate(data)
-            return config
-        except (json.JSONDecodeError, ValidationError) as err:
-            logger.error("Ошибка загрузки/валидации: %s. Используем дефолты.", err)
-            return AppConfig.model_validate({})
