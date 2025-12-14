@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx  # type: ignore
 
-from .config_manager import ConfigManager
+from App.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,8 @@ class InstanceManager:
     """
 
     # pylint: disable=too-many-instance-attributes
-    def __init__(self, config_manager: ConfigManager, http_client: httpx.AsyncClient):
+    def __init__(self, config_manager: ConfigManager,
+                 http_client: httpx.AsyncClient):  # pylint: disable=C0301
         """
         Инициализирует менеджер инстансов.
 
@@ -45,7 +46,8 @@ class InstanceManager:
         self._last_save_time: float = 0.0
         self._save_task: Optional[asyncio.Task] = None
         # Кэш для результатов check_instance_alive: {(host, port): (result, timestamp)}
-        self._instance_alive_cache: Dict[Tuple[str, int], Tuple[Optional[Dict[str, Any]], float]] = {} # pylint: disable=C0301
+        self._instance_alive_cache: Dict[Tuple[str, int],
+                                         Tuple[Optional[Dict[str, Any]], float]] = {}
 
         # Загрузка кэша из конфигурации при инициализации
         asyncio.create_task(self._load_initial_cache())
@@ -66,7 +68,7 @@ class InstanceManager:
             self.update_event.set()
             self.update_event.clear()
         else:
-            logger.info("Кэш инстансов в конфигурации устарел или недействителен.")
+            logger.info("Кэш инстансов в конфигурации устарел или недействителен.") # pylint: disable=C0301
 
     async def check_instance_alive(self, host: str, port: int,
                                    scan_timeout: int) -> Optional[Dict[str, Any]]:
@@ -89,7 +91,7 @@ class InstanceManager:
         # Проверяем кэш перед выполнением HTTP-запроса
         if cache_key in self._instance_alive_cache:
             cached_result, timestamp = self._instance_alive_cache[cache_key]
-            if (time.time() - timestamp) < instance_alive_cache_ttl:
+            if (time.time() - timestamp) < instance_alive_cache_ttl: # pylint: disable=C0301
                 logger.debug("Возвращаем кэшированный результат для %s", addr)
                 return cached_result
 
@@ -109,6 +111,29 @@ class InstanceManager:
         self._instance_alive_cache[cache_key] = (result, time.time())
         return result
 
+    def _get_updated_instance_data(self, addr: str, srv_type: str, result: Any,
+                                    old_instances: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Определяет обновленные данные для одного инстанса.
+        """
+        if isinstance(result, Exception) or result is None:
+            logger.debug("Сервер %s: оффлайн или ошибка: %s", addr, result)
+            if addr in old_instances or srv_type != 'autoscan':
+                version = old_instances.get(addr, {}).get('version', 'unknown')
+                return {
+                    'version': version,
+                    'status': 'Offline'
+                }
+            return {}
+
+        instance_data = result
+        logger.info("Сервер %s: онлайн, версия %s", addr, instance_data.get('version', 'unknown'))
+
+        return {
+            'version': instance_data.get('version', 'unknown'),  # type: ignore
+            'status': 'Online'
+        }
+
     async def perform_update(self):
         """
         Асинхронно обновляет список активных инстансов Astra с параллельным сканированием.
@@ -122,61 +147,35 @@ class InstanceManager:
             old_instances = {inst['addr']: inst for inst in self.instances}
         temp_instances: Dict[str, Dict[str, Any]] = {}
 
-        host = config.instance_host
-        start_port = config.start_port
-        end_port = config.end_port
-        servers = config.servers
-        scan_timeout = config.scan_timeout
+        target_addresses = self._get_target_addresses(config)
 
-        target_addresses: List[Any] = []
-        if servers:
-            # Цели из списка конфигурации
-            target_addresses = [(srv['host'], srv['port'], 'list') for srv in servers]
-        else:
-            # Цели из диапазона сканирования
-            target_addresses = [(host, p, 'autoscan') for p in range(start_port, end_port + 1)]
-
-        # Создание асинхронных задач
-        tasks = [self.check_instance_alive(srv_host, srv_port, scan_timeout)
+        tasks = [self.check_instance_alive(srv_host, srv_port, config.scan_timeout)
                  for srv_host, srv_port, _ in target_addresses]
 
-        # Параллельное выполнение всех задач
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Обработка результатов
         for (srv_host, srv_port, srv_type), result in zip(target_addresses, results):
             addr = f'{srv_host}:{srv_port}'
-
-            if isinstance(result, Exception) or result is None:
-                # Сервер недоступен (ошибка подключения или таймаут)
-                logger.debug("Сервер %s: оффлайн или ошибка: %s", addr, result)
-                # Если сервер был известен ранее или он из списка (не автоскан),
-                # сохраняем его как Offline
-                if addr in old_instances or srv_type != 'autoscan':
-                    version = old_instances.get(addr, {}).get('version', 'unknown')
-                    temp_instances[addr] = {
-                        'version': version,
-                        'status': 'Offline'
-                    }
-            else:
-                # Успешный результат
-                instance_data = result
-                temp_instances[addr] = {
-                    'version': instance_data.get('version', 'unknown'),  # type: ignore
-                    'status': 'Online'
-                }
-                logger.info("Сервер %s: онлайн, версия %s", addr,
-                            temp_instances[addr]['version']) # pylint: disable=C0301
+            instance_data = self._get_updated_instance_data(addr, srv_type, result, old_instances)
+            if instance_data:
+                temp_instances[addr] = instance_data
 
         # Атомарное обновление instances
         async with self.instances_lock:
             self.instances[:] = [{'addr': addr, **data} for addr, data in temp_instances.items()]
 
-        # Проверка на изменения для установки события update_event
-        # Используем сравнение хэшей для более быстрой проверки изменений
+        await self._check_for_changes_and_notify(old_instances, temp_instances, config)
+
+    async def _check_for_changes_and_notify(self, old_instances: Dict[str, Dict[str, Any]],
+                                            temp_instances: Dict[str, Dict[str, Any]],
+                                            config: Any) -> None:
+        """
+        Проверяет наличие изменений в списке инстансов и уведомляет подписчиков.
+        """
         has_changed = False
         new_instances_list = [{'addr': addr, **data} for addr, data in temp_instances.items()]
-        old_instances_list = list(old_instances.values())  # Преобразуем словарь в список для сравнения
+        # Преобразуем словарь в список для сравнения
+        old_instances_list = list(old_instances.values())
 
         # Сортируем списки для обеспечения консистентного порядка перед сравнением
         new_instances_list.sort(key=lambda x: x['addr'])
@@ -187,7 +186,6 @@ class InstanceManager:
 
         if has_changed:
             # Обновляем кэш в конфигурации и сохраняем его
-            config = self.config_manager.get_config()
             config.cached_instances = self.instances.copy()
             config.cache_timestamp = time.time()
 
@@ -201,6 +199,18 @@ class InstanceManager:
             logger.debug("Изменений в инстансах не обнаружено, кэш не обновляется.")
 
         logger.info("Обновлено %s инстансов", len(self.instances))
+
+    def _get_target_addresses(self, config) -> List[Tuple[str, int, str]]:
+        """
+        Формирует список целевых адресов для сканирования на основе конфигурации.
+        """
+        target_addresses: List[Tuple[str, int, str]] = []
+        if config.servers:
+            target_addresses = [(srv.address, srv.port, 'list') for srv in config.servers]
+        else:
+            target_addresses = [(config.instance_host, p, 'autoscan')
+                                for p in range(config.start_port, config.end_port + 1)]
+        return target_addresses
 
     async def async_update_loop(self):
         """
@@ -220,10 +230,10 @@ class InstanceManager:
                 # Ожидание интервала перед следующим обновлением
                 await asyncio.sleep(check_interval)
                 await self.perform_update()
-            except Exception as err:  # pylint: disable=W0718 # Catching too general exception to keep loop running
+            except Exception as err:  # pylint: disable=W0718
                 # Логирование ошибок цикла, чтобы он не прерывался полностью
                 logger.error("Ошибка в цикле обновлений: %s", err)
-                await asyncio.sleep(check_interval)
+            await asyncio.sleep(check_interval)
 
     async def check_instance_online(self, addr: str) -> bool:
         """

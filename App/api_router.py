@@ -7,10 +7,11 @@
 import asyncio
 import json
 import logging
+from typing import Tuple
 
 from quart import Blueprint, jsonify, render_template, Response  # type: ignore
 
-from .instance_manager import InstanceManager
+from App.instance_manager import InstanceManager
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,10 @@ class ApiRouter:
         """
         self.blueprint.add_url_rule('/', 'index', self.index)
         self.blueprint.add_url_rule('/api/instances', 'get_instances', self.get_instances)
-        self.blueprint.add_url_rule('/api/update_instances', 'api_update_instances',
+        self.blueprint.add_url_rule('/api/update_instances', 'api_update_instances_route',
                                     self.api_update_instances, methods=['POST'])
 
-    async def index(self) -> str:
+    async def index(self) -> Tuple[Response, int]:
         """
         Обработчик корневого URL '/'.
 
@@ -55,7 +56,7 @@ class ApiRouter:
         Returns:
             Ответ с отрендеренным содержимым файла index.html.
         """
-        return await render_template('index.html')
+        return await render_template('index.html'), 200
 
     async def get_instances(self) -> Response:
         """
@@ -89,8 +90,11 @@ class ApiRouter:
             except Exception:  # pylint: disable=W0718 # Catching too general exception for SSE generator
                 logger.error("Критическая ошибка в SSE-генераторе", exc_info=True)
                 # Отправка сообщения об ошибке клиенту SSE
-                yield (f"event: error\ndata: {json.dumps({'error': 'Ошибка в потоке обновлений',
-                                                          'message': 'Произошла непредвиденная ошибка.'})}\n\n") # pylint: disable=C0301
+                error_message = json.dumps({
+                    'error': 'Ошибка в потоке обновлений',
+                    'message': 'Произошла непредвиденная ошибка.'
+                })
+                yield f"event: error\ndata: {error_message}\n\n"
             finally:
                 logger.debug("Завершение работы SSE-генератора.")
 

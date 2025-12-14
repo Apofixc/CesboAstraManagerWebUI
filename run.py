@@ -7,10 +7,9 @@
 """
 
 import logging
-import asyncio
 
 # Импорт основного класса, управляющего зависимостями и конфигурацией приложения
-from .App.init import AppCore
+from App.init import AppCore
 
 # Настройка базового уровня логирования и формата сообщений
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -30,7 +29,7 @@ def app():
         logger.info("Инициализация приложения прервана пользователем")
         raise
     except Exception as e:
-        logger.error(f"Ошибка инициализации: {str(e)}")
+        logger.error("Ошибка инициализации: %s", e)
         raise
 
 if __name__ == '__main__':

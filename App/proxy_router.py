@@ -10,8 +10,8 @@ from typing import Any, Dict, Optional, Tuple
 import httpx # type: ignore
 from quart import Blueprint, request, Response, jsonify # type: ignore
 
-from .config_manager import ConfigManager
-from .instance_manager import InstanceManager
+from App.config_manager import ConfigManager
+from App.instance_manager import InstanceManager
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,9 @@ class ProxyRouter:
     на основе данных запроса и асинхронное проксирование запроса.
     """
 
-    def __init__(self, config_manager: ConfigManager, instance_manager: InstanceManager,
-                 http_client: httpx.AsyncClient):
+    def __init__(self, config_manager: ConfigManager,
+                 instance_manager: InstanceManager, http_client: httpx.AsyncClient):
+        # pylint: disable=C0301
         """
         Инициализирует ProxyRouter.
 
@@ -39,7 +40,7 @@ class ProxyRouter:
         self.instance_manager = instance_manager
         self.http_client = http_client
         # Словарь эндпоинтов, которые будут проксироваться
-        self.proxy_endpoints: Dict[str, str] = {  # pylint: disable=C0301
+        self.proxy_endpoints: Dict[str, str] = {
             '/api/get_channel_list': 'proxy_get_channel_list',
             '/api/get_monitor_list': 'proxy_get_monitor_list',
             '/api/get_monitor_data': 'proxy_get_monitor_data',
@@ -71,7 +72,7 @@ class ProxyRouter:
             # Регистрируем обработчик с уникальным именем
             self.blueprint.add_url_rule(endpoint, func_name, handler, methods=['POST'])
 
-    async def proxy_request(self, path: str) -> Response:
+    async def proxy_request(self, path: str) -> Tuple[Response, int]:
         """
         Основной асинхронный обработчик, вызывающий вспомогательную функцию проксирования.
 
@@ -87,9 +88,11 @@ class ProxyRouter:
             return await self.proxy_request_helper(path)
         except Exception:  # pylint: disable=W0718 # Catching too general exception for top-level error handling
             logger.error("Критическая ошибка в proxy_request для пути %s", path, exc_info=True)
-            return Response("Proxy error", status=500)
+            return jsonify({'error': 'Непредвиденная ошибка проксирования',
+                            'message': 'Произошла непредвиденная ошибка на сервере.'}), 500
 
-    async def _validate_proxy_request_data(self, request_data: Any) -> Tuple[Optional[str], Optional[Tuple[Dict[str, Any], int]]]:
+    async def _validate_proxy_request_data(self, request_data: Any) -> \
+            Tuple[Optional[str], Optional[Tuple[Dict[str, Any], int]]]:
         """
         Валидирует входные данные для прокси-запроса.
 
@@ -158,7 +161,7 @@ class ProxyRouter:
                              addr, endpoint)
             return {'error': 'Непредвиденная ошибка'}, 500
 
-    async def proxy_request_helper(self, endpoint: str) -> Response:
+    async def proxy_request_helper(self, endpoint: str) -> Tuple[Response, int]:
         """
         Универсальная функция для проксирования POST-запросов к Astra API.
 

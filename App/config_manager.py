@@ -97,10 +97,12 @@ class AppConfig(BaseModel):
                                description="Таймаут прокси в секундах (больше 0)")
     cache_ttl: int = Field(10, gt=0,
                            description="Время жизни кэша для инстансов в секундах (больше 0)")
-    cached_instances: List[Dict[str, Any]] = Field(default_factory=list,
-                                                   description="Кэшированный список инстансов")
-    cache_timestamp: float = Field(0.0,
-                                   description="Временная метка последнего обновления кэша")
+    instance_alive_cache_ttl: int = Field(5, gt=0,
+                                          description="Время жизни кэша для проверки доступности инстанса в секундах (больше 0)") # pylint: disable=C0301
+    cached_instances: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Кэшированный список инстансов"
+    )
+    cache_timestamp: float = Field(0.0, description="Временная метка последнего обновления кэша")
 
     @field_validator('instance_host', 'server_host')
     @classmethod
@@ -209,8 +211,8 @@ class ConfigManager:
             actual_config_path = config_file_path
         self.config_file_path = Path(actual_config_path)
         self.config_file_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config = AppConfig()  # Инициализируем дефолтной конфигурацией,
-                                   # будет загружена в async_init
+        self.config = AppConfig.model_validate({})  # Инициализируем дефолтной конфигурацией,
+                                                    # будет загружена в async_init
 
     async def async_init(self) -> None:
         """
@@ -232,7 +234,7 @@ class ConfigManager:
         if not self.config_file_path.exists():
             logger.info("Файл %s не найден. Создаём с дефолтными данными.",
                         self.config_file_path)
-            default_config: AppConfig = AppConfig()
+            default_config: AppConfig = AppConfig.model_validate({})
             async with aiofiles.open(self.config_file_path, mode='w',
                                      encoding='utf-8') as f:
                 await f.write(default_config.model_dump_json(indent=4))
@@ -247,7 +249,7 @@ class ConfigManager:
             return config
         except (json.JSONDecodeError, ValidationError) as err:
             logger.error("Ошибка загрузки/валидации: %s. Используем дефолты.", err)
-            return AppConfig()
+            return AppConfig.model_validate({})
 
     def get_config(self) -> AppConfig:
         """
