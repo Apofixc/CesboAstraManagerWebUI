@@ -10,7 +10,8 @@ from asyncio import Event as AsyncEvent
 from asyncio import Lock
 from typing import Any, Dict, List, Optional, Tuple
 import logging
-from exceptiongroup import ExceptionGroup # type: ignore
+# ExceptionGroup является встроенным в Python 3.11+, поэтому явный импорт не требуется.
+# from exceptiongroup import ExceptionGroup # type: ignore
 
 import httpx  # type: ignore
 
@@ -71,8 +72,6 @@ class InstanceManager:
             async with self.instances_lock:
                 self.instances[:] = instances
             logger.info("Инстансы загружены из конфигурационного кэша (%s шт.).", len(instances))
-            # self.update_event.set() # Удалено, так как SSE клиенты должны получать текущее состояние при подключении
-            # self.update_event.clear() # Удалено
         else:
             logger.info("Кэш инстансов в конфигурации устарел или недействителен.") # pylint: disable=C0301
 
@@ -182,7 +181,7 @@ class InstanceManager:
             async with asyncio.TaskGroup() as tg:
                 tasks = [tg.create_task(self.check_instance_alive(srv_host, srv_port, config.scan_timeout))
                          for srv_host, srv_port, _ in target_addresses]
-        except* ExceptionGroup as eg: # Перехватываем ExceptionGroup
+        except* ExceptionGroup as eg: # type: ignore # Перехватываем ExceptionGroup
             logger.error("Ошибка в TaskGroup при проверке инстансов: %s", eg, exc_info=True)
             # Если все задачи отменены, TaskGroup может поднять CancelledError
             # или TaskGroupError, содержащую CancelledError.
@@ -282,12 +281,14 @@ class InstanceManager:
             except asyncio.CancelledError:
                 logger.info("Цикл обновлений инстансов отменен.")
                 break # Завершаем цикл при отмене
-            except Exception as err: # Перехватываем более общий Exception, включая TaskGroupError
-                # Логирование ошибок цикла, чтобы он не прерывался полностью.
-                # В будущем рассмотреть возможность перехвата более конкретных исключений.
-                logger.error("Ошибка в цикле обновлений: %s", err, exc_info=True)
+            except ExceptionGroup as eg: # Перехватываем ExceptionGroup, если она была перевыброшена
+                logger.error("Ошибка в TaskGroup при проверке инстансов: %s", eg, exc_info=True)
+            except Exception as err: # Перехватываем другие непредвиденные исключения
+                logger.error("Непредвиденная ошибка в цикле обновлений: %s", err, exc_info=True)
             # Ожидание интервала перед следующим обновлением
+            logger.debug("Цикл обновлений: ожидание интервала %s секунд.", check_interval)
             await asyncio.sleep(check_interval)
+            logger.debug("Цикл обновлений: интервал завершен, выполнение обновления.")
 
     async def check_instance_online(self, addr: str) -> bool:
         """
@@ -313,7 +314,7 @@ class InstanceManager:
         async with self.instances_lock:
             return self.instances.copy()
 
-    async def _debounce_save_config(self, delay: float = 5.0) -> None:
+    async def _debounce_save_config(self) -> None:
         # Этот метод остается защищенным, так как он является внутренней деталью реализации debounce.
         # Внешний код не должен напрямую управлять _save_task.
         """
@@ -325,23 +326,33 @@ class InstanceManager:
         Args:
             delay (float): Задержка в секундах перед сохранением. По умолчанию 5.0.
         """
+        config = self.config_manager.get_config() # Получаем config здесь, чтобы он был доступен
         if self._save_task and not self._save_task.done():
             self._save_task.cancel()
             try:
-                await self._save_task # Ожидаем завершения отмены
+                logger.debug("Ожидание завершения предыдущей задачи сохранения конфигурации (таймаут %s секунд).", config.debounce_save_delay + 1)
+                await asyncio.wait_for(self._save_task, timeout=config.debounce_save_delay + 1) # Даем немного больше времени
+                logger.debug("Предыдущая задача сохранения конфигурации завершена после отмены.")
             except asyncio.CancelledError:
-                pass # Ожидаемое исключение при отмене
+                logger.debug("Предыдущая задача сохранения конфигурации отменена.")
+            except asyncio.TimeoutError:
+                logger.warning("Предыдущая задача сохранения конфигурации не завершилась в течение таймаута (%s секунд) после отмены. Возможно, она все еще выполняется.", config.debounce_save_delay + 1)
+            except Exception as e:
+                logger.error("Ошибка при отмене/завершении предыдущей задачи сохранения конфигурации: %s", e, exc_info=True)
 
         async def _save_task_coro():
             try:
                 config = self.config_manager.get_config()
+                logger.debug("Задача сохранения конфигурации: ожидание задержки %s секунд.", config.debounce_save_delay)
                 await asyncio.sleep(config.debounce_save_delay)
                 await self.config_manager.save_config()
                 logger.info("Конфигурация успешно сохранена после задержки.")
             except asyncio.CancelledError:
                 logger.debug("Задача сохранения конфигурации отменена.")
             except (OSError, TypeError, ValueError) as err:
-                logger.error("Ошибка при отложенном сохранении конфигурации: %s", err)
+                logger.error("Ошибка при отложенном сохранении конфигурации: %s", err, exc_info=True)
+            except Exception as e:
+                logger.error("Непредвиденная ошибка в задаче сохранения конфигурации: %s", e, exc_info=True)
 
         self._save_task = asyncio.create_task(_save_task_coro())
 
@@ -353,9 +364,16 @@ class InstanceManager:
         if self._save_task and not self._save_task.done():
             self._save_task.cancel()
             try:
-                await self._save_task
+                # Ожидаем завершения отмены с таймаутом
+                logger.info("Ожидание завершения задачи сохранения конфигурации при завершении работы (таймаут 10 секунд).")
+                await asyncio.wait_for(self._save_task, timeout=10.0)
+                logger.info("Задача сохранения конфигурации завершена после отмены при завершении работы.")
             except asyncio.CancelledError:
                 logger.info("Задача сохранения конфигурации отменена при завершении работы.")
+            except asyncio.TimeoutError:
+                logger.warning("Задача сохранения конфигурации не завершилась в течение 10 секунд после отмены при завершении работы. Возможно, она все еще выполняется.")
+            except Exception as e:
+                logger.error("Ошибка при отмене/завершении задачи сохранения конфигурации при завершении работы: %s", e, exc_info=True)
 
     async def manual_update(self) -> List[Dict[str, Any]]:
         """

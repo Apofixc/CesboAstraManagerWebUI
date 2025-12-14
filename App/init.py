@@ -110,27 +110,39 @@ class AppCore:
             if self._update_task:
                 self._update_task.cancel()
                 try:
-                    await self._update_task
+                    # Ожидаем завершения задачи с таймаутом
+                    logger.info("Ожидание завершения фоновой задачи обновления инстансов (таймаут 10 секунд).")
+                    await asyncio.wait_for(self._update_task, timeout=10.0)
+                    logger.info("Фоновая задача обновления инстансов завершена корректно.")
                 except asyncio.CancelledError:
                     logger.info("Фоновая задача обновления инстансов отменена.")
+                except asyncio.TimeoutError:
+                    logger.warning("Фоновая задача обновления инстансов не завершилась в течение 10 секунд после отмены. Возможно, она все еще выполняется.")
                 except Exception as e:
-                    logger.error("Ошибка при завершении фоновой задачи обновления инстансов: %s", e)
-            # Принудительно сохраняем конфигурацию при завершении работы
-            # Убеждаемся, что все отложенные сохранения завершены или отменены
+                    logger.error("Ошибка при завершении фоновой задачи обновления инстансов: %s", e, exc_info=True)
+
+            logger.info("Начало отмены отложенной задачи сохранения конфигурации.")
             if self.instance_manager:
                 await self.instance_manager.cancel_pending_save_task()
+                logger.info("Отложенная задача сохранения конфигурации отменена (если была активна).")
             # Обновляем кэш в конфигурации из instance_manager перед сохранением
             if self.instance_manager:
                 config = self.config_manager.get_config()
                 async with self.instance_manager.instances_lock:
                     config.cached_instances = self.instance_manager.instances.copy()
                 config.cache_timestamp = time.time() # Обновляем временную метку
+            logger.info("Начало сохранения конфигурации.")
             await self.config_manager.save_config()
-            # Закрываем клиенты только если они были инициализированы
+            logger.info("Конфигурация успешно сохранена.")
+
+            logger.info("Начало закрытия HTTP-клиентов.")
             if self.http_client_instance_manager:
                 await self.http_client_instance_manager.aclose()
+                logger.info("HTTP-клиент для InstanceManager закрыт.")
             if self.http_client_proxy:
                 await self.http_client_proxy.aclose()
+                logger.info("HTTP-клиент для ProxyRouter закрыт.")
+
             # Добавляем явные проверки на None для других менеджеров (для типобезопасности)
             if self.api_router_instance:
                 logger.debug("ApiRouter instance is present during shutdown.")
@@ -138,6 +150,7 @@ class AppCore:
                 logger.debug("ProxyRouter instance is present during shutdown.")
             if self.error_handler:
                 logger.debug("ErrorHandler instance is present during shutdown.")
+            logger.info("Сервер остановлен.")
 
         logger.info("Сервер инициализирован.")
         return app

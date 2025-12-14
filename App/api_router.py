@@ -73,17 +73,24 @@ class ApiRouter:
         """
         async def generate():
             last_sent = None
+            logger.info("SSE-генератор запущен для нового клиента.")
             try:
                 while True:
-                    # Ожидание сигнала о новых данных от менеджера инстансов
-                    await self.instance_manager.update_event.wait()
+                    # Ожидание сигнала о новых данных от менеджера инстансов с таймаутом
+                    try:
+                        await asyncio.wait_for(self.instance_manager.update_event.wait(), timeout=1.0)
+                        self.instance_manager.update_event.clear() # Сбрасываем событие после ожидания
+                        logger.debug("SSE-генератор: получено событие обновления.")
+                    except asyncio.TimeoutError:
+                        # Таймаут истек, продолжаем цикл для проверки отмены
+                        logger.debug("SSE-генератор: таймаут ожидания события, проверка отмены.")
+                        pass # Продолжаем, чтобы проверить отмену задачи
 
                     # Получение актуальных данных
                     data = await self.instance_manager.get_instances()
 
                     if last_sent != data:
-                        # Используйте DEBUG вместо INFO для частых сообщений
-                        logger.debug("Отправка обновления инстансов через SSE")
+                        logger.debug("SSE-генератор: обнаружены новые данные, отправка обновления.")
                         try:
                             json_data = json.dumps(data)
                             yield f"data: {json_data}\n\n"
@@ -95,12 +102,16 @@ class ApiRouter:
                                 'message': 'Не удалось преобразовать данные в JSON.'
                             })
                             yield f"event: error\ndata: {error_message}\n\n"
+                    else:
+                        logger.debug("SSE-генератор: данные не изменились.")
 
             except asyncio.CancelledError:
-                # Ожидаемое исключение при закрытии соединения клиентом (браузером)
-                logger.info("SSE-соединение для /api/instances отменено клиентом.")
+                # Ожидаемое исключение при закрытии соединения клиентом (браузером или Uvicorn)
+                logger.info("SSE-соединение для /api/instances отменено.")
+            except Exception as e:
+                logger.error("Непредвиденная ошибка в SSE-генераторе: %s", e, exc_info=True)
             finally:
-                logger.debug("Завершение работы SSE-генератора.")
+                logger.info("Завершение работы SSE-генератора.")
 
         return Response(generate(), mimetype='text/event-stream')
 

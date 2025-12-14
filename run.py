@@ -9,8 +9,8 @@
 import logging
 from quart import Quart # type: ignore
 
-from App.init import AppCore
-from App.logger_config import setup_logging
+from astra_manager.App.init import AppCore
+from astra_manager.App.logger_config import setup_logging
 
 # Настройка базового уровня логирования и формата сообщений
 setup_logging(level=logging.INFO)
