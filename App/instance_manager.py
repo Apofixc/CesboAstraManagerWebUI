@@ -33,7 +33,8 @@ class InstanceManager:
         Инициализирует менеджер инстансов.
 
         Args:
-            config_manager (ConfigManager): Экземпляр ConfigManager для доступа к настройкам сканирования.
+            config_manager (ConfigManager): Экземпляр ConfigManager для доступа к 
+                                            настройкам сканирования.
             http_client (httpx.AsyncClient): Асинхронный HTTP-клиент для выполнения запросов.
         """
         self.config_manager = config_manager
@@ -124,7 +125,8 @@ class InstanceManager:
 
         Args:
             addr (str): Адрес инстанса в формате "хост:порт".
-            srv_type (str): Тип сервера ('list' для сконфигурированных, 'autoscan' для автосканирования).
+            srv_type (str): Тип сервера ('list' для сконфигурированных, 
+                            'autoscan' для автосканирования).
             result (Any): Результат проверки доступности инстанса (JSON-ответ или исключение).
             old_instances (Dict[str, Dict[str, Any]]): Словарь предыдущих состояний инстансов.
 
