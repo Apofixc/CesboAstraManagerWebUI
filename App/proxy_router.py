@@ -152,10 +152,23 @@ class ProxyRouter:
             if res.status_code == 200:
                 if 'application/json' in content_type:
                     return res.json(), res.status_code
-                return {'ok': 'Операция выполнена успешно'}, res.status_code
+                # Если не JSON, но статус 200, возвращаем текст как есть
+                return {'message': res.text}, res.status_code # Возвращаем текст ответа
+            
+            # Если статус не 200, но не ошибка подключения/таймаута,
+            # пытаемся вернуть JSON-ответ от удаленного сервера, если он есть
+            if 'application/json' in content_type:
+                try:
+                    return res.json(), res.status_code
+                except ValueError:
+                    logger.warning("Неверный JSON-ответ от удаленного сервера со статусом %s",
+                                   res.status_code)
+            
+            # В остальных случаях возвращаем общий текст ошибки
             logger.error("Ошибка на удаленном сервере: Статус %s, Ответ: %s",
                          res.status_code, res.text)
-            return {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}'}, 502
+            return {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}',
+                    'details': res.text}, res.status_code # Передаем оригинальный статус и текст
 
         except httpx.TimeoutException:
             logger.error("Таймаут подключения к %s на %s", addr, endpoint)

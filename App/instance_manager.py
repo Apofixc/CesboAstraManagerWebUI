@@ -97,27 +97,29 @@ class InstanceManager:
         instance_alive_cache_ttl = config.instance_alive_cache_ttl
 
         # Проверяем кэш перед выполнением HTTP-запроса
-        if cache_key in self._instance_alive_cache:
-            cached_result, timestamp = self._instance_alive_cache[cache_key]
-            if (time.time() - timestamp) < instance_alive_cache_ttl: # pylint: disable=C0301
-                logger.debug("Возвращаем кэшированный результат для %s", addr)
-                return cached_result
-
         async with self._instance_alive_cache_lock:
-            result = None
-            try:
-                res = await self.http_client.get(f'http://{host}:{port}/api/health',
-                                                 timeout=scan_timeout)
+            if cache_key in self._instance_alive_cache:
+                cached_result, timestamp = self._instance_alive_cache[cache_key]
+                if (time.time() - timestamp) < instance_alive_cache_ttl:
+                    logger.debug("Возвращаем кэшированный результат для %s", addr)
+                    return cached_result
 
-                if res.status_code == 200:
-                    try:
-                        result = res.json()
-                    except ValueError:
-                        logger.warning("Неверный JSON-ответ от %s", addr)
-            except httpx.RequestError as err:
-                logger.warning("Не удалось подключиться к %s: %s", addr, err)
-                
-            # Кэшируем результат
+        # Выполняем HTTP-запрос вне блокировки для максимального параллелизма
+        result = None
+        try:
+            res = await self.http_client.get(f'http://{host}:{port}/api/health',
+                                             timeout=scan_timeout)
+
+            if res.status_code == 200:
+                try:
+                    result = res.json()
+                except ValueError:
+                    logger.warning("Неверный JSON-ответ от %s", addr)
+        except httpx.RequestError as err:
+            logger.warning("Не удалось подключиться к %s: %s", addr, err)
+
+        # Кэшируем результат внутри блокировки
+        async with self._instance_alive_cache_lock:
             self._instance_alive_cache[cache_key] = (result, time.time())
         return result
 
@@ -138,6 +140,11 @@ class InstanceManager:
         """
         if isinstance(result, Exception) or result is None:
             logger.debug("Сервер %s: оффлайн или ошибка: %s", addr, result)
+            # Логика: для сконфигурированных серверов (srv_type != 'autoscan')
+            # или серверов, которые уже были в списке (old_instances),
+            # сохраняем их в списке со статусом 'Offline'.
+            # Для новых автосканированных серверов, которые стали оффлайн,
+            # не добавляем их в список.
             if addr in old_instances or srv_type != 'autoscan':
                 version = old_instances.get(addr, {}).get('version', 'unknown')
                 return {
@@ -145,7 +152,6 @@ class InstanceManager:
                     'status': 'Offline'
                 }
             return {}
-
         instance_data = result
         logger.info("Сервер %s: онлайн, версия %s", addr, instance_data.get('version', 'unknown'))
 
@@ -312,14 +318,9 @@ class InstanceManager:
         if self._save_task and not self._save_task.done():
             self._save_task.cancel()
             try:
-                # Ожидаем отмены, чтобы избежать RuntimeError, только если задача еще не завершена
-                await asyncio.wait_for(self._save_task, timeout=1.0)
+                await self._save_task # Ожидаем завершения отмены
             except asyncio.CancelledError:
-                pass  # Ожидаемое исключение при отмене
-            except asyncio.TimeoutError:
-                logger.warning("Задача сохранения конфигурации не завершилась в течение таймаута после отмены.")
-            except Exception as err:
-                logger.error("Непредвиденная ошибка при ожидании отмены задачи сохранения: %s", err)
+                pass # Ожидаемое исключение при отмене
 
         async def _save_task_coro():
             try:
@@ -328,7 +329,7 @@ class InstanceManager:
                 logger.info("Конфигурация успешно сохранена после задержки.")
             except asyncio.CancelledError:
                 logger.debug("Задача сохранения конфигурации отменена.")
-            except Exception as err:  # pylint: disable=W0718 # Catching too general exception for logging
+            except Exception as err:
                 logger.error("Ошибка при отложенном сохранении конфигурации: %s", err)
 
         self._save_task = asyncio.create_task(_save_task_coro())

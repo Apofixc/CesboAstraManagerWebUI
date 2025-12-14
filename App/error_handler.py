@@ -49,21 +49,6 @@ class ErrorHandler:
         logger.warning("404 ошибка: %s", error)
         return jsonify({"error": "Not found", "message": str(error)}), 404
 
-    async def handle_500(self, error: Exception) -> Tuple[Response, int]:
-        """
-        Обрабатывает HTTP-ошибку 500 (Internal Server Error) или общее исключение.
-
-        Логирует критическую ошибку и возвращает общий JSON-ответ для клиента.
-
-        Args:
-            error (Exception): Объект исключения.
-
-        Returns:
-            Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 500).
-        """
-        logger.error("500 ошибка (внутренняя ошибка сервера): %s", error, exc_info=True)
-        return jsonify({"error": "Internal server error", "message": "Something went wrong"}), 500
-
     async def handle_400(self, error: HTTPException) -> Tuple[Response, int]:
         """
         Обрабатывает HTTP-ошибку 400 (Bad Request).
@@ -76,7 +61,7 @@ class ErrorHandler:
         Returns:
             Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 400).
         """
-        logger.info("400 ошибка (плохой запрос): %s", error)
+        logger.warning("400 ошибка (плохой запрос): %s", error)
         return jsonify({"error": "Bad request", "message": str(error)}), 400
 
     async def handle_403(self, error: HTTPException) -> Tuple[Response, int]:
@@ -136,5 +121,5 @@ class ErrorHandler:
         app.register_error_handler(400, self.handle_400)
         app.register_error_handler(403, self.handle_403)
         # Обработка любых других исключений как 500
-        app.register_error_handler(500, self.handle_generic_exception) # Используем handle_generic_exception для 500
+        app.register_error_handler(500, self.handle_generic_exception)
         app.register_error_handler(Exception, self.handle_generic_exception)

@@ -80,9 +80,8 @@ class AppCore:
 
             # Инициализация httpx.AsyncClient для InstanceManager с таймаутом сканирования
             self.http_client_instance_manager = httpx.AsyncClient(timeout=config.scan_timeout)
-            # Инициализация httpx.AsyncClient для ProxyRouter с общим таймаутом (или None для бесконечного)
-            self.http_client_proxy = httpx.AsyncClient()
-
+            # Инициализация httpx.AsyncClient для ProxyRouter с таймаутом из конфигурации
+            self.http_client_proxy = httpx.AsyncClient(timeout=config.proxy_timeout)
             # Инициализация компонентов, которые зависят от менеджеров
             self.instance_manager = InstanceManager(self.config_manager, self.http_client_instance_manager)
             self.proxy_router_instance = ProxyRouter(self.config_manager,
@@ -90,12 +89,9 @@ class AppCore:
                                                     self.http_client_proxy)
             self.api_router_instance = ApiRouter(self.instance_manager)
 
-            # Регистрация роутеров (Blueprints) с проверкой на None
-            if self.api_router_instance:
-                app.register_blueprint(self.api_router_instance.get_blueprint())
-            if self.proxy_router_instance:
-                app.register_blueprint(self.proxy_router_instance.get_blueprint())
-
+            # Регистрация роутеров (Blueprints)
+            app.register_blueprint(self.api_router_instance.get_blueprint())
+            app.register_blueprint(self.proxy_router_instance.get_blueprint())
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:
                 # Синхронная загрузка кэша при старте приложения
@@ -111,14 +107,21 @@ class AppCore:
             Закрывает HTTP-клиент.
             """
             logger.info("Сервер останавливается.")
-            # Принудительно сохраняем конфигурацию при завершении работы
-            await self.config_manager.save_config()
             if self._update_task:
                 self._update_task.cancel()
                 try:
                     await self._update_task
                 except asyncio.CancelledError:
                     logger.info("Фоновая задача обновления инстансов отменена.")
+            # Принудительно сохраняем конфигурацию при завершении работы
+            # Убеждаемся, что все отложенные сохранения завершены или отменены
+            if self.instance_manager and self.instance_manager._save_task:
+                self.instance_manager._save_task.cancel()
+                try:
+                    await self.instance_manager._save_task
+                except asyncio.CancelledError:
+                    pass # Ожидаемое исключение при отмене
+            await self.config_manager.save_config() # Сохраняем актуальную конфигурацию
             # Закрываем клиенты только если они были инициализированы
             if self.http_client_instance_manager:
                 await self.http_client_instance_manager.aclose()

@@ -5,6 +5,7 @@
 валидации, загрузки и сохранения настроек приложения из JSON-файла.
 Использует Pydantic для строгой типизации и автоматической валидации.
 """
+import ipaddress # Добавляем импорт ipaddress
 import json
 import logging
 import re
@@ -18,7 +19,7 @@ from pydantic import (BaseModel, Field, ValidationError, field_validator,
 logger = logging.getLogger(__name__)
 
 # Компилируем регулярные выражения один раз на уровне модуля
-IP_REGEX = re.compile(r'^\d+\.\d+\.\d+\.\d+$')
+# IP_REGEX больше не нужен, так как будет использоваться ipaddress
 DOMAIN_REGEX = re.compile(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
@@ -58,16 +59,15 @@ class Instance(BaseModel):
                              "без протокола и порта")
         if v == 'localhost':
             pass
-        elif IP_REGEX.match(v):  # IP-адрес
-            octets: List[str] = v.split('.')
-            if len(octets) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255
-                                           for o in octets):
-                raise ValueError(f"Неверный IP: {v}")
-        elif DOMAIN_REGEX.match(v):  # Домен
-            pass
         else:
-            raise ValueError(f"Неверный address: '{v}' "
-                             "(ожидается localhost, IP или домен)")
+            try:
+                ipaddress.ip_address(v) # Используем ipaddress для валидации IP
+            except ValueError:
+                if DOMAIN_REGEX.match(v):  # Домен
+                    pass
+                else:
+                    raise ValueError(f"Неверный address: '{v}' "
+                                     "(ожидается localhost, IP или домен)")
         return v
 
 
@@ -131,15 +131,14 @@ class AppConfig(BaseModel):
             raise ValueError(f"Хост должен быть чистым: '{v}' без протокола и порта")
         if v == 'localhost':
             pass
-        elif IP_REGEX.match(v):  # IP-адрес
-            octets: List[str] = v.split('.')
-            if len(octets) != 4 or not all(o.isdigit() and 0 <= int(o) <= 255
-                                           for o in octets):
-                raise ValueError(f"Неверный IP: {v}")
-        elif DOMAIN_REGEX.match(v):  # Домен
-            pass
         else:
-            raise ValueError(f"Неверный хост: '{v}' (ожидается localhost, IP или домен)")
+            try:
+                ipaddress.ip_address(v) # Используем ipaddress для валидации IP
+            except ValueError:
+                if DOMAIN_REGEX.match(v):  # Домен
+                    pass
+                else:
+                    raise ValueError(f"Неверный хост: '{v}' (ожидается localhost, IP или домен)")
         return v
 
     @field_validator('servers')
@@ -213,14 +212,9 @@ class ConfigManager:
             config_file_path (Optional[str]): Путь к конфигурационному файлу.
                                               По умолчанию 'config.json'.
         """
-        if config_file_path is None:
-            actual_config_path: str = 'config.json'
-        else:
-            actual_config_path = config_file_path
-        self.config_file_path = Path(actual_config_path)
+        self.config_file_path = Path(config_file_path or 'config.json')
         self.config_file_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config: AppConfig # Объявляем тип, но не инициализируем
-
+        self.config: AppConfig = AppConfig.model_validate({}) # Инициализируем с дефолтными значениями
     async def async_init(self) -> None:
         """
         Выполняет асинхронную инициализацию менеджера конфигурации.
