@@ -88,10 +88,6 @@ class AppConfig(BaseModel):
                                     description="Список серверов (объекты Instance)")
     check_interval: int = Field(300, gt=0,
                                 description="Интервал проверки в секундах (больше 0)")
-    server_host: str = Field("127.0.0.1",
-                             description="Хост основного сервера (IP или домен)")
-    server_port: int = Field(5000, ge=1, le=65535,
-                             description="Порт основного сервера (1-65535)")
     debug: bool = Field(False, description="Режим отладки (True/False)")
     scan_timeout: int = Field(5, gt=0,
                               description="Таймаут сканирования в секундах (больше 0)")
@@ -105,6 +101,9 @@ class AppConfig(BaseModel):
         default_factory=list, description="Кэшированный список инстансов"
     )
     cache_timestamp: float = Field(0.0, description="Временная метка последнего обновления кэша")
+    cors_allow_origin: str = Field("*", description="Значение заголовка Access-Control-Allow-Origin для CORS")
+    debounce_save_delay: float = Field(5.0, gt=0,
+                                       description="Задержка в секундах для отложенного сохранения конфигурации")
 
     @field_validator('instance_host', 'server_host')
     @classmethod

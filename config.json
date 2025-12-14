@@ -4,13 +4,13 @@
     "end_port": 9300,
     "servers": [],
     "check_interval": 300,
-    "server_host": "127.0.0.1",
-    "server_port": 5000,
     "debug": false,
     "scan_timeout": 5,
     "proxy_timeout": 15,
     "cache_ttl": 10,
     "instance_alive_cache_ttl": 5,
     "cached_instances": [],
-    "cache_timestamp": 0.0
+    "cache_timestamp": 0.0,
+    "cors_allow_origin": "*",
+    "debounce_save_delay": 5.0,
 }

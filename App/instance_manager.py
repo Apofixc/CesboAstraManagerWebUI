@@ -299,7 +299,7 @@ class InstanceManager:
         async with self.instances_lock:
             return self.instances.copy()
 
-    async def _debounce_save_config(self, delay: float = 5.0) -> None:
+    async def _debounce_save_config(self) -> None:
         """
         Откладывает сохранение конфигурации для предотвращения слишком частых записей на диск.
 
@@ -323,7 +323,8 @@ class InstanceManager:
 
         async def _save_task_coro():
             try:
-                await asyncio.sleep(delay)
+                config = self.config_manager.get_config()
+                await asyncio.sleep(config.debounce_save_delay)
                 await self.config_manager.save_config()
                 logger.info("Конфигурация успешно сохранена после задержки.")
             except asyncio.CancelledError:

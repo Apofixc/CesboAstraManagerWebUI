@@ -39,23 +39,14 @@ class AppCore:
                                         Если `None`, используются дефолтные настройки.
         """
         self.config_manager: ConfigManager = ConfigManager(config_path)
-        # Эти менеджеры будут инициализированы позже в create_app
+        self.app: Quart = Quart("Astra Web-UI")
         self.instance_manager: Optional[InstanceManager] = None
         self.proxy_router_instance: Optional[ProxyRouter] = None
         self.api_router_instance: Optional[ApiRouter] = None
-        self.app: Quart = Quart("Astra Web-UI")
         self.error_handler: Optional[ErrorHandler] = None
         self.http_client_instance_manager: Optional[httpx.AsyncClient] = None
         self.http_client_proxy: Optional[httpx.AsyncClient] = None
         self._update_task: Optional[asyncio.Task] = None
-
-    async def async_init(self) -> None:
-        """
-        Выполняет асинхронную инициализацию ядра приложения.
-
-        Загружает конфигурацию после создания объекта `AppCore`.
-        """
-        await self.config_manager.async_init()
 
     def create_app(self) -> Quart:
         """
@@ -69,29 +60,9 @@ class AppCore:
         """
         app = self.app
 
-        # Конфигурация уже загружена и доступна через self.config_manager.get_config()
-        config = self.config_manager.get_config()
-
-        # Инициализация httpx.AsyncClient для InstanceManager с таймаутом сканирования
-        self.http_client_instance_manager = httpx.AsyncClient(timeout=config.scan_timeout)
-        # Инициализация httpx.AsyncClient для ProxyRouter с общим таймаутом (или None для бесконечного)
-        # Здесь можно использовать другой таймаут, если требуется
-        self.http_client_proxy = httpx.AsyncClient()
-
-        # Инициализация компонентов, которые зависят от менеджеров
-        self.instance_manager = InstanceManager(self.config_manager, self.http_client_instance_manager)
-        self.proxy_router_instance = ProxyRouter(self.config_manager,
-                                                 self.instance_manager,
-                                                 self.http_client_proxy)
-        self.api_router_instance = ApiRouter(self.instance_manager)
 
         # Middleware: Включение CORS для всех источников
-        app = cors(app, allow_origin="*")
-
-        # Регистрация роутеров (Blueprints)
-        if self.api_router_instance and self.proxy_router_instance:
-            app.register_blueprint(self.api_router_instance.get_blueprint())
-            app.register_blueprint(self.proxy_router_instance.get_blueprint())
+        app = cors(app, allow_origin=config.cors_allow_origin)
 
         # Регистрация обработчиков ошибок
         self.error_handler = ErrorHandler(app)
@@ -104,12 +75,26 @@ class AppCore:
 
             Запускает фоновую задачу обновления инстансов.
             """
-            await self.async_init()
+            await self.config_manager.async_init() # Загружаем конфигурацию здесь
+            config = self.config_manager.get_config()
+
+            self.http_client_instance_manager = httpx.AsyncClient(timeout=config.scan_timeout)
+            self.http_client_proxy = httpx.AsyncClient(timeout=config.proxy_timeout)
+
+            self.instance_manager = InstanceManager(self.config_manager, self.http_client_instance_manager)
+            self.proxy_router_instance = ProxyRouter(self.config_manager,
+                                                     self.instance_manager,
+                                                     self.http_client_proxy)
+            self.api_router_instance = ApiRouter(self.instance_manager)
+
+            # Регистрация роутеров (Blueprints)
+            if self.api_router_instance and self.proxy_router_instance:
+                app.register_blueprint(self.api_router_instance.get_blueprint())
+                app.register_blueprint(self.proxy_router_instance.get_blueprint())
+
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:
-                # Синхронная загрузка кэша при старте приложения
                 await self.instance_manager._load_initial_cache()
-                # Запускаем цикл обновлений как фоновую задачу asyncio
                 self._update_task = asyncio.create_task(self.instance_manager.async_update_loop())
 
         @app.after_serving
@@ -117,10 +102,9 @@ class AppCore:
             """
             Обработчик события после остановки сервера.
 
-            Закрывает HTTP-клиент.
+            Закрывает HTTP-клиенты и отменяет фоновую задачу.
             """
             logger.info("Сервер останавливается.")
-            # Принудительно сохраняем конфигурацию при завершении работы
             await self.config_manager.save_config()
             if self._update_task:
                 self._update_task.cancel()
