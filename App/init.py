@@ -49,14 +49,6 @@ class AppCore:
         self.http_client_proxy: Optional[httpx.AsyncClient] = None
         self._update_task: Optional[asyncio.Task] = None
 
-    async def async_init(self) -> None:
-        """
-        Выполняет асинхронную инициализацию ядра приложения.
-
-        Загружает конфигурацию после создания объекта `AppCore`.
-        """
-        await self.config_manager.async_init()
-
     def create_app(self) -> Quart:
         """
         Создает, конфигурирует и возвращает готовый к запуску экземпляр Quart-приложения.
@@ -69,29 +61,8 @@ class AppCore:
         """
         app = self.app
 
-        # Конфигурация уже загружена и доступна через self.config_manager.get_config()
-        config = self.config_manager.get_config()
-
-        # Инициализация httpx.AsyncClient для InstanceManager с таймаутом сканирования
-        self.http_client_instance_manager = httpx.AsyncClient(timeout=config.scan_timeout)
-        # Инициализация httpx.AsyncClient для ProxyRouter с общим таймаутом (или None для бесконечного)
-        # Здесь можно использовать другой таймаут, если требуется
-        self.http_client_proxy = httpx.AsyncClient()
-
-        # Инициализация компонентов, которые зависят от менеджеров
-        self.instance_manager = InstanceManager(self.config_manager, self.http_client_instance_manager)
-        self.proxy_router_instance = ProxyRouter(self.config_manager,
-                                                 self.instance_manager,
-                                                 self.http_client_proxy)
-        self.api_router_instance = ApiRouter(self.instance_manager)
-
         # Middleware: Включение CORS для всех источников
         app = cors(app, allow_origin="*")
-
-        # Регистрация роутеров (Blueprints)
-        if self.api_router_instance and self.proxy_router_instance:
-            app.register_blueprint(self.api_router_instance.get_blueprint())
-            app.register_blueprint(self.proxy_router_instance.get_blueprint())
 
         # Регистрация обработчиков ошибок
         self.error_handler = ErrorHandler(app)
@@ -104,7 +75,27 @@ class AppCore:
 
             Запускает фоновую задачу обновления инстансов.
             """
-            await self.async_init()
+            await self.config_manager.async_init()
+            config = self.config_manager.get_config()
+
+            # Инициализация httpx.AsyncClient для InstanceManager с таймаутом сканирования
+            self.http_client_instance_manager = httpx.AsyncClient(timeout=config.scan_timeout)
+            # Инициализация httpx.AsyncClient для ProxyRouter с общим таймаутом (или None для бесконечного)
+            self.http_client_proxy = httpx.AsyncClient()
+
+            # Инициализация компонентов, которые зависят от менеджеров
+            self.instance_manager = InstanceManager(self.config_manager, self.http_client_instance_manager)
+            self.proxy_router_instance = ProxyRouter(self.config_manager,
+                                                    self.instance_manager,
+                                                    self.http_client_proxy)
+            self.api_router_instance = ApiRouter(self.instance_manager)
+
+            # Регистрация роутеров (Blueprints) с проверкой на None
+            if self.api_router_instance:
+                app.register_blueprint(self.api_router_instance.get_blueprint())
+            if self.proxy_router_instance:
+                app.register_blueprint(self.proxy_router_instance.get_blueprint())
+
             logger.info("Сервер запускается. Запуск фонового цикла обновлений.")
             if self.instance_manager:
                 # Синхронная загрузка кэша при старте приложения
@@ -128,6 +119,7 @@ class AppCore:
                     await self._update_task
                 except asyncio.CancelledError:
                     logger.info("Фоновая задача обновления инстансов отменена.")
+            # Закрываем клиенты только если они были инициализированы
             if self.http_client_instance_manager:
                 await self.http_client_instance_manager.aclose()
             if self.http_client_proxy:

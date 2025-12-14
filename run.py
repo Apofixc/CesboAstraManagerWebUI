@@ -8,9 +8,7 @@
 
 import logging
 
-# Импорт основного класса, управляющего зависимостями и конфигурацией приложения
 from App.init import AppCore
-from App.config_manager import ConfigManager # Импортируем ConfigManager
 from quart import Quart # Импортируем Quart для аннотации типа
 
 # Настройка базового уровня логирования и формата сообщений

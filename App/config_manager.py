@@ -219,8 +219,7 @@ class ConfigManager:
             actual_config_path = config_file_path
         self.config_file_path = Path(actual_config_path)
         self.config_file_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config = AppConfig.model_validate({})  # Инициализируем дефолтной конфигурацией,
-                                                    # будет загружена в async_init
+        self.config: AppConfig # Объявляем тип, но не инициализируем
 
     async def async_init(self) -> None:
         """
@@ -240,10 +239,14 @@ class ConfigManager:
         Returns:
             AppConfig: Валидный объект `AppConfig`, готовый к использованию.
         """
-        # Используем новый хелпер для обработки существования файла
-        default_or_none = await self._handle_config_file_existence_async()
-        if default_or_none:
-            return default_or_none
+        if not self.config_file_path.exists():
+            logger.info("Файл %s не найден. Создаём с дефолтными данными.",
+                        self.config_file_path)
+            default_config: AppConfig = AppConfig.model_validate({})
+            async with aiofiles.open(self.config_file_path, mode='w',
+                                     encoding='utf-8') as f:
+                await f.write(default_config.model_dump_json(indent=4))
+            return default_config
 
         try:
             async with aiofiles.open(self.config_file_path, mode='r',
@@ -255,21 +258,6 @@ class ConfigManager:
         except (json.JSONDecodeError, ValidationError) as err:
             logger.error("Ошибка загрузки/валидации: %s. Используем дефолты.", err)
             return AppConfig.model_validate({})
-
-    async def _handle_config_file_existence_async(self) -> Optional[AppConfig]:
-        """
-        Обрабатывает существование файла конфигурации асинхронно.
-        Если файл не найден, создает его с дефолтными значениями.
-        """
-        if not self.config_file_path.exists():
-            logger.info("Файл %s не найден. Создаём с дефолтными данными.",
-                        self.config_file_path)
-            default_config: AppConfig = AppConfig.model_validate({})
-            async with aiofiles.open(self.config_file_path, mode='w',
-                                     encoding='utf-8') as f:
-                await f.write(default_config.model_dump_json(indent=4))
-            return default_config
-        return None # Возвращаем None, если файл существует, чтобы продолжить загрузку
 
     def get_config(self) -> AppConfig:
         """
