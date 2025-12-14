@@ -10,8 +10,8 @@ from typing import Any, Dict, Optional, Tuple
 import httpx # type: ignore
 from quart import Blueprint, request, Response, jsonify # type: ignore
 
-from App.config_manager import ConfigManager
-from App.instance_manager import InstanceManager
+from astra_manager.App.config_manager import ConfigManager
+from astra_manager.App.instance_manager import InstanceManager
 
 logger = logging.getLogger(__name__)
 
@@ -152,30 +152,16 @@ class ProxyRouter:
         try:
             res = await self.http_client.post(url, json=payload, headers=headers,
                                                timeout=proxy_timeout)
-            content_type = res.headers.get('content-type', '')
-
             response_data: Dict[str, Any]
             status_code: int
 
-            if res.status_code == 200:
-                if 'application/json' in content_type:
-                    response_data, status_code = res.json(), res.status_code
-                else:
-                    response_data, status_code = {'message': res.text}, res.status_code
-            else:
-                if 'application/json' in content_type:
-                    try:
-                        response_data, status_code = res.json(), res.status_code
-                    except ValueError:
-                        logger.warning("Неверный JSON-ответ от удаленного сервера со статусом %s",
-                                       res.status_code)
-                        response_data, status_code = {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}',
-                                                      'details': res.text}, res.status_code
-                else:
-                    logger.error("Ошибка на удаленном сервере: Статус %s, Ответ: %s",
-                                 res.status_code, res.text)
-                    response_data, status_code = {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}',
-                                                  'details': res.text}, res.status_code
+            try:
+                response_data, status_code = res.json(), res.status_code
+            except ValueError:
+                logger.warning("Неверный JSON-ответ от удаленного сервера со статусом %s",
+                               res.status_code)
+                response_data, status_code = {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}',
+                                              'details': res.text}, res.status_code
 
         except httpx.TimeoutException:
             logger.error("Таймаут подключения к %s на %s", addr, endpoint)

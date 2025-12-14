@@ -6,19 +6,19 @@
 а также настройку событий жизненного цикла приложения.
 """
 import asyncio
-import logging
 import time
 from typing import Optional
+import logging
 
 import httpx  # type: ignore
 from quart import Quart  # type: ignore
 from quart_cors import cors  # type: ignore
 
-from App.api_router import ApiRouter
-from App.config_manager import ConfigManager
-from App.error_handler import ErrorHandler
-from App.instance_manager import InstanceManager
-from App.proxy_router import ProxyRouter
+from astra_manager.App.api_router import ApiRouter
+from astra_manager.App.config_manager import ConfigManager
+from astra_manager.App.error_handler import ErrorHandler
+from astra_manager.App.instance_manager import InstanceManager
+from astra_manager.App.proxy_router import ProxyRouter
 
 logger = logging.getLogger(__name__)
 

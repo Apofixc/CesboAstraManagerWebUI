@@ -5,15 +5,16 @@
 хранение их статуса и уведомление других частей приложения об изменениях.
 """
 import asyncio
-import logging
 import time
 from asyncio import Event as AsyncEvent
 from asyncio import Lock
 from typing import Any, Dict, List, Optional, Tuple
+import logging
+from exceptiongroup import ExceptionGroup # type: ignore
 
 import httpx  # type: ignore
 
-from App.config_manager import ConfigManager
+from astra_manager.App.config_manager import ConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class InstanceManager:
         self._instance_alive_cache_lock: Lock = Lock()
 
         # Загрузка кэша из конфигурации при инициализации (теперь синхронно из AppCore)
-        # asyncio.create_task(self._load_initial_cache())
+        # Закомментировано, так как загрузка теперь происходит в AppCore.startup_event
 
     async def load_initial_cache(self) -> None:
         """
@@ -168,21 +169,27 @@ class InstanceManager:
         адресов, обновляет внутреннее состояние `self.instances` и устанавливает
         `self.update_event` при обнаружении изменений.
         """
+        config = self.config_manager.get_config()
+        async with self.instances_lock:
+            old_instances = {inst['addr']: inst for inst in self.instances}
+        temp_instances: Dict[str, Dict[str, Any]] = {}
+
+        target_addresses = self._get_target_addresses(config)
+
+        # Используем TaskGroup для более чистого управления асинхронными задачами
+        # Требуется Python 3.11+
         try:
-            config = self.config_manager.get_config()
-            async with self.instances_lock:
-                old_instances = {inst['addr']: inst for inst in self.instances}
-            temp_instances: Dict[str, Dict[str, Any]] = {}
+            async with asyncio.TaskGroup() as tg:
+                tasks = [tg.create_task(self.check_instance_alive(srv_host, srv_port, config.scan_timeout))
+                         for srv_host, srv_port, _ in target_addresses]
+        except* ExceptionGroup as eg: # Перехватываем ExceptionGroup
+            logger.error("Ошибка в TaskGroup при проверке инстансов: %s", eg, exc_info=True)
+            # Если все задачи отменены, TaskGroup может поднять CancelledError
+            # или TaskGroupError, содержащую CancelledError.
+            # Мы перехватываем это на уровне async_update_loop.
+            raise # Перевыбрасываем, чтобы async_update_loop мог обработать
 
-            target_addresses = self._get_target_addresses(config)
-
-            tasks = [self.check_instance_alive(srv_host, srv_port, config.scan_timeout)
-                     for srv_host, srv_port, _ in target_addresses]
-
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-        except asyncio.CancelledError:
-            logger.info("Задача perform_update отменена.")
-            raise # Перевыбрасываем исключение, чтобы вызывающий код мог его обработать
+        results = [task.result() for task in tasks]
 
         for (srv_host, srv_port, srv_type), result in zip(target_addresses, results):
             addr = f'{srv_host}:{srv_port}'
@@ -274,9 +281,10 @@ class InstanceManager:
                 await self.perform_update()
             except asyncio.CancelledError:
                 logger.info("Цикл обновлений инстансов отменен.")
-                break
-            except (OSError, TypeError, ValueError, AttributeError) as err:
-                # Логирование ошибок цикла, чтобы он не прерывался полностью
+                break # Завершаем цикл при отмене
+            except Exception as err: # Перехватываем более общий Exception, включая TaskGroupError
+                # Логирование ошибок цикла, чтобы он не прерывался полностью.
+                # В будущем рассмотреть возможность перехвата более конкретных исключений.
                 logger.error("Ошибка в цикле обновлений: %s", err, exc_info=True)
             # Ожидание интервала перед следующим обновлением
             await asyncio.sleep(check_interval)

@@ -4,8 +4,8 @@
 Предоставляет асинхронные обработчики для стандартных кодов ошибок (400, 403, 404, 500)
 и регистрирует их в основном приложении.
 """
-import logging
 from typing import Tuple
+import logging
 
 from quart import jsonify, Quart, Response  # type: ignore
 from werkzeug.exceptions import HTTPException  # type: ignore

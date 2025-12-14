@@ -6,12 +6,12 @@
 """
 import asyncio
 import json
-import logging
 from typing import Tuple
+import logging
 
 from quart import Blueprint, jsonify, render_template, Response  # type: ignore
 
-from App.instance_manager import InstanceManager
+from astra_manager.App.instance_manager import InstanceManager
 
 logger = logging.getLogger(__name__)
 

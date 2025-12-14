@@ -7,12 +7,13 @@
 """
 
 import logging
+from quart import Quart # type: ignore
 
 from App.init import AppCore
-from quart import Quart # Импортируем Quart для аннотации типа
+from App.logger_config import setup_logging
 
 # Настройка базового уровня логирования и формата сообщений
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+setup_logging(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Инициализация ядра приложения с уже загруженным ConfigManager
