@@ -116,7 +116,7 @@ class AppCore:
                     logger.info("Фоновая задача обновления инстансов отменена.")
             # Принудительно сохраняем конфигурацию при завершении работы
             # Убеждаемся, что все отложенные сохранения завершены или отменены
-            if self.instance_manager and self.instance_manager._save_task:
+            if self.instance_manager and self.instance_manager._save_task and not self.instance_manager._save_task.done():  # noqa: E501
                 self.instance_manager._save_task.cancel()
                 try:
                     await self.instance_manager._save_task
