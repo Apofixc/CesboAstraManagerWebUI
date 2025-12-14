@@ -62,12 +62,12 @@ class Instance(BaseModel):
         else:
             try:
                 ipaddress.ip_address(v) # Используем ipaddress для валидации IP
-            except ValueError:
+            except ValueError as exc:
                 if DOMAIN_REGEX.match(v):  # Домен
                     pass
                 else:
                     raise ValueError(f"Неверный address: '{v}' "
-                                     "(ожидается localhost, IP или домен)")
+                                     "(ожидается localhost, IP или домен)") from exc
         return v
 
 
@@ -134,11 +134,11 @@ class AppConfig(BaseModel):
         else:
             try:
                 ipaddress.ip_address(v) # Используем ipaddress для валидации IP
-            except ValueError:
+            except ValueError as exc:
                 if DOMAIN_REGEX.match(v):  # Домен
                     pass
                 else:
-                    raise ValueError(f"Неверный хост: '{v}' (ожидается localhost, IP или домен)")
+                    raise ValueError(f"Неверный хост: '{v}' (ожидается localhost, IP или домен)") from exc
         return v
 
     @field_validator('servers')

@@ -275,7 +275,7 @@ class InstanceManager:
             except asyncio.CancelledError:
                 logger.info("Цикл обновлений инстансов отменен.")
                 break
-            except Exception as err:
+            except (OSError, TypeError, ValueError, AttributeError) as err:
                 # Логирование ошибок цикла, чтобы он не прерывался полностью
                 logger.error("Ошибка в цикле обновлений: %s", err, exc_info=True)
             # Ожидание интервала перед следующим обновлением
@@ -329,7 +329,7 @@ class InstanceManager:
                 logger.info("Конфигурация успешно сохранена после задержки.")
             except asyncio.CancelledError:
                 logger.debug("Задача сохранения конфигурации отменена.")
-            except Exception as err:
+            except (OSError, TypeError, ValueError) as err:
                 logger.error("Ошибка при отложенном сохранении конфигурации: %s", err)
 
         self._save_task = asyncio.create_task(_save_task_coro())
