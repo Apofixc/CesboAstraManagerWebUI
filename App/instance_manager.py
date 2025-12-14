@@ -326,7 +326,8 @@ class InstanceManager:
 
         async def _save_task_coro():
             try:
-                await asyncio.sleep(delay)
+                config = self.config_manager.get_config()
+                await asyncio.sleep(config.debounce_save_delay)
                 await self.config_manager.save_config()
                 logger.info("Конфигурация успешно сохранена после задержки.")
             except asyncio.CancelledError:

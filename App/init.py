@@ -40,11 +40,10 @@ class AppCore:
                                         Если `None`, используются дефолтные настройки.
         """
         self.config_manager: ConfigManager = ConfigManager(config_path)
-        # Эти менеджеры будут инициализированы позже в create_app
+        self.app: Quart = Quart("Astra Web-UI")
         self.instance_manager: Optional[InstanceManager] = None
         self.proxy_router_instance: Optional[ProxyRouter] = None
         self.api_router_instance: Optional[ApiRouter] = None
-        self.app: Quart = Quart("Astra Web-UI")
         self.error_handler: Optional[ErrorHandler] = None
         self.http_client_instance_manager: Optional[httpx.AsyncClient] = None
         self.http_client_proxy: Optional[httpx.AsyncClient] = None
@@ -105,7 +104,7 @@ class AppCore:
             """
             Обработчик события после остановки сервера.
 
-            Закрывает HTTP-клиент.
+            Закрывает HTTP-клиенты и отменяет фоновую задачу.
             """
             logger.info("Сервер останавливается.")
             if self._update_task:
