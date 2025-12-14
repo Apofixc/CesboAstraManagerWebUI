@@ -133,8 +133,8 @@ class ErrorHandler:
         """
         # Используем self.handle_... для регистрации методов текущего объекта
         app.register_error_handler(404, self.handle_404)
-        app.register_error_handler(500, self.handle_500)
         app.register_error_handler(400, self.handle_400)
         app.register_error_handler(403, self.handle_403)
         # Обработка любых других исключений как 500
+        app.register_error_handler(500, self.handle_generic_exception) # Используем handle_generic_exception для 500
         app.register_error_handler(Exception, self.handle_generic_exception)

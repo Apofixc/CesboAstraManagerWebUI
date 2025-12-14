@@ -46,6 +46,7 @@ class AppCore:
         self.error_handler: Optional[ErrorHandler] = None
         self.http_client_instance_manager: Optional[httpx.AsyncClient] = None
         self.http_client_proxy: Optional[httpx.AsyncClient] = None
+        self._update_task: Optional[asyncio.Task] = None
 
     def create_app(self) -> Quart:
         """
@@ -99,7 +100,7 @@ class AppCore:
                 # Синхронная загрузка кэша при старте приложения
                 await self.instance_manager._load_initial_cache()
                 # Запускаем цикл обновлений как фоновую задачу asyncio
-                asyncio.create_task(self.instance_manager.async_update_loop())
+                self._update_task = asyncio.create_task(self.instance_manager.async_update_loop())
 
         @app.after_serving
         async def shutdown_event():
@@ -111,6 +112,12 @@ class AppCore:
             logger.info("Сервер останавливается.")
             # Принудительно сохраняем конфигурацию при завершении работы
             await self.config_manager.save_config()
+            if self._update_task:
+                self._update_task.cancel()
+                try:
+                    await self._update_task
+                except asyncio.CancelledError:
+                    logger.info("Фоновая задача обновления инстансов отменена.")
             if self.http_client_instance_manager:
                 await self.http_client_instance_manager.aclose()
             if self.http_client_proxy:

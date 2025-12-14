@@ -232,6 +232,27 @@ class ConfigManager:
         Returns:
             AppConfig: Валидный объект `AppConfig`, готовый к использованию.
         """
+        # Используем новый хелпер для обработки существования файла
+        default_or_none = await self._handle_config_file_existence_async()
+        if default_or_none:
+            return default_or_none
+
+        try:
+            async with aiofiles.open(self.config_file_path, mode='r',
+                                     encoding='utf-8') as f:
+                content = await f.read()
+                data: Dict[str, Any] = json.loads(content)
+            config: AppConfig = AppConfig.model_validate(data)
+            return config
+        except (json.JSONDecodeError, ValidationError) as err:
+            logger.error("Ошибка загрузки/валидации: %s. Используем дефолты.", err)
+            return AppConfig.model_validate({})
+
+    async def _handle_config_file_existence_async(self) -> Optional[AppConfig]:
+        """
+        Обрабатывает существование файла конфигурации асинхронно.
+        Если файл не найден, создает его с дефолтными значениями.
+        """
         if not self.config_file_path.exists():
             logger.info("Файл %s не найден. Создаём с дефолтными данными.",
                         self.config_file_path)
@@ -240,17 +261,19 @@ class ConfigManager:
                                      encoding='utf-8') as f:
                 await f.write(default_config.model_dump_json(indent=4))
             return default_config
+        return None # Возвращаем None, если файл существует, чтобы продолжить загрузку
 
-        try:
-            async with aiofiles.open(self.config_file_path, mode='r',
-                                     encoding='utf-8') as f:
-                content = await f.read()
-                data: Dict[str, Any] = json.loads(content)
-            config: AppConfig = AppConfig(**data)
-            return config
-        except (json.JSONDecodeError, ValidationError) as err:
-            logger.error("Ошибка загрузки/валидации: %s. Используем дефолты.", err)
-            return AppConfig.model_validate({})
+    def _handle_config_file_existence_sync(self) -> Optional[AppConfig]:
+        """
+        Обрабатывает существование файла конфигурации синхронно.
+        Если файл не найден, создает его с дефолтными значениями.
+        """
+        if not self.config_file_path.exists():
+            logger.info("Файл %s не найден. Создаём с дефолтными данными.", self.config_file_path)
+            default_config: AppConfig = AppConfig.model_validate({})
+            self.config_file_path.write_text(default_config.model_dump_json(indent=4), encoding='utf-8')
+            return default_config
+        return None # Возвращаем None, если файл существует, чтобы продолжить загрузку
 
     def get_config(self) -> AppConfig:
         """
@@ -297,16 +320,14 @@ class ConfigManager:
         Returns:
             AppConfig: Валидный объект `AppConfig`, готовый к использованию.
         """
-        if not self.config_file_path.exists():
-            logger.info("Файл %s не найден. Создаём с дефолтными данными.", self.config_file_path)
-            default_config: AppConfig = AppConfig.model_validate({})
-            self.config_file_path.write_text(default_config.model_dump_json(indent=4), encoding='utf-8')
-            return default_config
+        default_or_none = self._handle_config_file_existence_sync()
+        if default_or_none:
+            return default_or_none
 
         try:
             content = self.config_file_path.read_text(encoding='utf-8')
             data: Dict[str, Any] = json.loads(content)
-            config: AppConfig = AppConfig(**data)
+            config: AppConfig = AppConfig.model_validate(data)
             return config
         except (json.JSONDecodeError, ValidationError) as err:
             logger.error("Ошибка загрузки/валидации: %s. Используем дефолты.", err)

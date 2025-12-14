@@ -44,7 +44,6 @@ class InstanceManager:
         self.instances_lock: Lock = Lock()
         # Событие для оповещения подписчиков (например, SSE-клиентов) об обновлениях
         self.update_event: AsyncEvent = AsyncEvent()
-        self._last_save_time: float = 0.0
         self._save_task: Optional[asyncio.Task] = None
         # Кэш для результатов check_instance_alive: {(host, port): (result, timestamp)}
         self._instance_alive_cache: Dict[Tuple[str, int],
@@ -71,8 +70,8 @@ class InstanceManager:
             async with self.instances_lock:
                 self.instances[:] = instances
             logger.info("Инстансы загружены из конфигурационного кэша (%s шт.).", len(instances))
-            self.update_event.set()
-            self.update_event.clear()
+            # self.update_event.set() # Удалено, так как SSE клиенты должны получать текущее состояние при подключении
+            # self.update_event.clear() # Удалено
         else:
             logger.info("Кэш инстансов в конфигурации устарел или недействителен.") # pylint: disable=C0301
 
@@ -270,9 +269,9 @@ class InstanceManager:
             except asyncio.CancelledError:
                 logger.info("Цикл обновлений инстансов отменен.")
                 break
-            except Exception as err:  # pylint: disable=W0718
+            except Exception as err:
                 # Логирование ошибок цикла, чтобы он не прерывался полностью
-                logger.error("Ошибка в цикле обновлений: %s", err)
+                logger.error("Ошибка в цикле обновлений: %s", err, exc_info=True)
             # Ожидание интервала перед следующим обновлением
             await asyncio.sleep(check_interval)
 
@@ -313,9 +312,14 @@ class InstanceManager:
         if self._save_task and not self._save_task.done():
             self._save_task.cancel()
             try:
-                await self._save_task  # Ожидаем отмены, чтобы избежать RuntimeError
+                # Ожидаем отмены, чтобы избежать RuntimeError, только если задача еще не завершена
+                await asyncio.wait_for(self._save_task, timeout=1.0)
             except asyncio.CancelledError:
                 pass  # Ожидаемое исключение при отмене
+            except asyncio.TimeoutError:
+                logger.warning("Задача сохранения конфигурации не завершилась в течение таймаута после отмены.")
+            except Exception as err:
+                logger.error("Непредвиденная ошибка при ожидании отмены задачи сохранения: %s", err)
 
         async def _save_task_coro():
             try:

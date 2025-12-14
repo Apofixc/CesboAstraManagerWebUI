@@ -90,8 +90,8 @@ class ApiRouter:
             except asyncio.CancelledError:
                 # Ожидаемое исключение при закрытии соединения клиентом (браузером)
                 logger.info("SSE-соединение для /api/instances отменено клиентом.")
-            except Exception:  # pylint: disable=W0718 # Catching too general exception for SSE generator
-                logger.error("Критическая ошибка в SSE-генераторе", exc_info=True)
+            except Exception as err:
+                logger.error("Критическая ошибка в SSE-генераторе: %s", err, exc_info=True)
                 # Отправка сообщения об ошибке клиенту SSE
                 error_message = json.dumps({
                     'error': 'Ошибка в потоке обновлений',

@@ -86,8 +86,8 @@ class ProxyRouter:
         """
         try:
             return await self.proxy_request_helper(path)
-        except Exception:  # pylint: disable=W0718 # Catching too general exception for top-level error handling
-            logger.error("Критическая ошибка в proxy_request для пути %s", path, exc_info=True)
+        except Exception as err:
+            logger.error("Критическая ошибка в proxy_request для пути %s: %s", path, err, exc_info=True)
             return jsonify({'error': 'Непредвиденная ошибка проксирования',
                             'message': 'Произошла непредвиденная ошибка на сервере.'}), 500
 
@@ -163,9 +163,9 @@ class ProxyRouter:
         except httpx.ConnectError as err:
             logger.error("Ошибка подключения к %s на %s: %s", addr, endpoint, err)
             return {'error': 'Ошибка подключения к Astra'}, 503
-        except Exception:  # pylint: disable=W0718 # Catching too general exception for top-level error handling
-            logger.exception("Непредвиденная ошибка при проксировании к %s на %s",
-                             addr, endpoint)
+        except Exception as err:
+            logger.error("Непредвиденная ошибка при проксировании к %s на %s: %s",
+                             addr, endpoint, err, exc_info=True)
             return {'error': 'Непредвиденная ошибка'}, 500
 
     async def proxy_request_helper(self, endpoint: str) -> Tuple[Response, int]:
@@ -182,9 +182,6 @@ class ProxyRouter:
         Returns:
             Tuple[Response, int]: JSON-ответ от сервера Astra, либо JSON-ответ с описанием ошибки.
         """
-        if not self.config_manager:
-            return jsonify({'error': 'Конфигурация не инициализирована'}), 500
-
         config = self.config_manager.get_config()
         proxy_timeout = config.proxy_timeout
 
@@ -194,8 +191,7 @@ class ProxyRouter:
             response_data, status_code = validation_error_tuple
             return jsonify(response_data), status_code
 
-        if addr is None: # Дополнительная проверка, хотя по логике не должна быть достигнута
-            return jsonify({'error': 'Непредвиденная ошибка валидации адреса'}), 500
+        assert addr is not None, "addr должен быть строкой после валидации"
 
         # Удаляем 'astra_addr' из полезной нагрузки перед отправкой на сервер Astra
         payload = {k: v for k, v in request_data.items() if k != 'astra_addr'}
