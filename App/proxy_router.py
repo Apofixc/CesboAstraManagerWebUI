@@ -86,7 +86,7 @@ class ProxyRouter:
         """
         try:
             return await self.proxy_request_helper(path)
-        except Exception as err:
+        except Exception as err: # pylint: disable=W0718
             logger.error("Критическая ошибка в proxy_request для пути %s: %s", path, err, exc_info=True)
             return jsonify({'error': 'Непредвиденная ошибка проксирования',
                             'message': 'Произошла непредвиденная ошибка на сервере.'}), 500
@@ -108,25 +108,28 @@ class ProxyRouter:
                 - Кортеж `(JSON-ответ с ошибкой, HTTP-статус)` или `None`,
                   если валидация успешна.
         """
+        error_response: Optional[Tuple[Dict[str, Any], int]] = None
+        addr: Optional[str] = None
+
         if not request_data or not isinstance(request_data, dict):
-            return None, ({'error': 'Неверный или отсутствующий JSON'}, 400)
+            error_response = ({'error': 'Неверный или отсутствующий JSON'}, 400)
+        else:
+            addr = request_data.get('astra_addr')
+            if not addr or not isinstance(addr, str):
+                error_response = ({'error': 'Неверный или отсутствующий "astra_addr"'}, 400)
+            else:
+                try:
+                    _, port_str = addr.split(':')
+                    port = int(port_str)
+                    if not 1 <= port <= 65535:
+                        raise ValueError("Порт должен быть в диапазоне 1-65535")
+                except ValueError:
+                    error_response = ({'error': 'Неверный формат "astra_addr" (ожидается host:port с валидным портом)'}, 400)
 
-        addr = request_data.get('astra_addr')
-        if not addr or not isinstance(addr, str):
-            return None, ({'error': 'Неверный или отсутствующий "astra_addr"'}, 400)
+                if not error_response and not await self.instance_manager.check_instance_online(addr):
+                    error_response = ({'error': f'Инстанс {addr} не найден или оффлайн'}, 404)
 
-        try:
-            _, port_str = addr.split(':')
-            port = int(port_str)
-            if not 1 <= port <= 65535:
-                raise ValueError("Порт должен быть в диапазоне 1-65535")
-        except ValueError:
-            return None, ({'error': 'Неверный формат "astra_addr" (ожидается host:port с валидным портом)'}, 400)
-
-        if not await self.instance_manager.check_instance_online(addr):
-            return None, ({'error': f'Инстанс {addr} не найден или оффлайн'}, 404)
-
-        return addr, None
+        return addr, error_response
 
     async def _handle_proxy_http_request(self, addr: str, endpoint: str, payload: Dict[str, Any],
                                          proxy_timeout: int) -> Tuple[Dict[str, Any], int]:
@@ -151,37 +154,41 @@ class ProxyRouter:
                                                timeout=proxy_timeout)
             content_type = res.headers.get('content-type', '')
 
+            response_data: Dict[str, Any]
+            status_code: int
+
             if res.status_code == 200:
                 if 'application/json' in content_type:
-                    return res.json(), res.status_code
-                # Если не JSON, но статус 200, возвращаем текст как есть
-                return {'message': res.text}, res.status_code # Возвращаем текст ответа
-
-            # Если статус не 200, но не ошибка подключения/таймаута,
-            # пытаемся вернуть JSON-ответ от удаленного сервера, если он есть
-            if 'application/json' in content_type:
-                try:
-                    return res.json(), res.status_code
-                except ValueError:
-                    logger.warning("Неверный JSON-ответ от удаленного сервера со статусом %s",
-                                   res.status_code)
-
-            # В остальных случаях возвращаем общий текст ошибки
-            logger.error("Ошибка на удаленном сервере: Статус %s, Ответ: %s",
-                         res.status_code, res.text)
-            return {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}',
-                    'details': res.text}, res.status_code # Передаем оригинальный статус и текст
+                    response_data, status_code = res.json(), res.status_code
+                else:
+                    response_data, status_code = {'message': res.text}, res.status_code
+            else:
+                if 'application/json' in content_type:
+                    try:
+                        response_data, status_code = res.json(), res.status_code
+                    except ValueError:
+                        logger.warning("Неверный JSON-ответ от удаленного сервера со статусом %s",
+                                       res.status_code)
+                        response_data, status_code = {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}',
+                                                      'details': res.text}, res.status_code
+                else:
+                    logger.error("Ошибка на удаленном сервере: Статус %s, Ответ: %s",
+                                 res.status_code, res.text)
+                    response_data, status_code = {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}',
+                                                  'details': res.text}, res.status_code
 
         except httpx.TimeoutException:
             logger.error("Таймаут подключения к %s на %s", addr, endpoint)
-            return {'error': 'Превышен таймаут подключения к Astra'}, 504
+            response_data, status_code = {'error': 'Превышен таймаут подключения к Astra'}, 504
         except httpx.ConnectError as err:
             logger.error("Ошибка подключения к %s на %s: %s", addr, endpoint, err)
-            return {'error': 'Ошибка подключения к Astra'}, 503
-        except Exception as err:
+            response_data, status_code = {'error': 'Ошибка подключения к Astra'}, 503
+        except Exception as err: # pylint: disable=W0718
             logger.error("Непредвиденная ошибка при проксировании к %s на %s: %s",
                              addr, endpoint, err, exc_info=True)
-            return {'error': 'Непредвиденная ошибка'}, 500
+            response_data, status_code = {'error': 'Непредвиденная ошибка'}, 500
+
+        return response_data, status_code
 
     async def proxy_request_helper(self, endpoint: str) -> Tuple[Response, int]:
         """
