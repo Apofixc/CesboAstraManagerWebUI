@@ -19,7 +19,6 @@ from pydantic import (BaseModel, Field, ValidationError, field_validator, # type
 logger = logging.getLogger(__name__)
 
 # Компилируем регулярные выражения один раз на уровне модуля
-# IP_REGEX больше не нужен, так как будет использоваться ipaddress
 DOMAIN_REGEX = re.compile(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
@@ -105,7 +104,7 @@ class AppConfig(BaseModel):
     debounce_save_delay: float = Field(5.0, gt=0,
                                        description="Задержка в секундах для отложенного сохранения конфигурации")
 
-    @field_validator('instance_host', 'server_host')
+    @field_validator('instance_host')
     @classmethod
     def validate_host(cls, v: str) -> str:
         """

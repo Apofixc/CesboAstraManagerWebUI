@@ -113,6 +113,8 @@ class AppCore:
                     await self._update_task
                 except asyncio.CancelledError:
                     logger.info("Фоновая задача обновления инстансов отменена.")
+                except Exception as e:
+                    logger.error("Ошибка при завершении фоновой задачи обновления инстансов: %s", e)
             # Принудительно сохраняем конфигурацию при завершении работы
             # Убеждаемся, что все отложенные сохранения завершены или отменены
             if self.instance_manager:
