@@ -36,18 +36,20 @@ class Instance(BaseModel):
     @classmethod
     def validate_address(cls, v: str) -> str:
         """
-        Валидирует значение адреса: проверяет формат (localhost/IP/домен),
-        отсутствие схем и портов (фильтр SSRF).
+        Валидирует значение адреса.
+
+        Проверяет формат адреса (localhost/IP/домен) и отсутствие схем/портов
+        для предотвращения SSRF-атак.
 
         Args:
-            v: Значение адреса (строка).
+            v (str): Значение адреса.
 
         Returns:
-            Валидное значение адреса (строка).
+            str: Валидное значение адреса.
 
         Raises:
             ValueError: Если адрес некорректный (пустой, содержит схему, порт
-                        или не соответствует формату).
+                        или не соответствует ожидаемому формату).
         """
         if not v:
             raise ValueError("Address не может быть пустым")
@@ -108,18 +110,20 @@ class AppConfig(BaseModel):
     @classmethod
     def validate_host(cls, v: str) -> str:
         """
-        Валидирует значение хоста: проверяет формат (localhost/IP/домен),
-        отсутствие схем и портов (фильтр SSRF).
+        Валидирует значение хоста.
+
+        Проверяет формат хоста (localhost/IP/домен) и отсутствие схем/портов
+        для предотвращения SSRF-атак.
 
         Args:
-            v: Значение хоста (строка).
+            v (str): Значение хоста.
 
         Returns:
-            Валидное значение хоста (строка).
+            str: Валидное значение хоста.
 
         Raises:
             ValueError: Если хост некорректный (пустой, содержит схему, порт
-                        или не соответствует формату).
+                        или не соответствует ожидаемому формату).
         """
         if not v:
             raise ValueError("Хост не может быть пустым")
@@ -142,14 +146,16 @@ class AppConfig(BaseModel):
     @classmethod
     def validate_servers(cls, v: List[Union[Dict[str, Any], Instance]]) -> List[Instance]:
         """
-        Валидирует список серверов: фильтрует некорректные элементы Instance
-        (quiet drop) с логированием, сохраняет валидные.
+        Валидирует список серверов.
+
+        Фильтрует некорректные элементы `Instance` (quiet drop) с логированием
+        и сохраняет только валидные объекты.
 
         Args:
-            v: Список сырых данных или объектов Instance.
+            v (List[Union[Dict[str, Any], Instance]]): Список сырых данных или объектов Instance.
 
         Returns:
-            Фильтрованный список валидных объектов Instance.
+            List[Instance]: Отфильтрованный список валидных объектов Instance.
         """
         if not isinstance(v, list):
             raise ValueError("Servers должен быть списком")
@@ -170,13 +176,15 @@ class AppConfig(BaseModel):
     @model_validator(mode='after')
     def validate_ports(self) -> 'AppConfig':
         """
-        Производит кросс-валидацию портов: проверяет, что start_port < end_port.
+        Выполняет кросс-валидацию портов.
+
+        Проверяет, что `start_port` меньше `end_port`.
 
         Returns:
-            Объект модели (сам себя).
+            AppConfig: Объект модели (сам себя).
 
         Raises:
-            ValueError: Если start_port >= end_port.
+            ValueError: Если `start_port` больше или равен `end_port`.
         """
         if self.start_port >= self.end_port:
             raise ValueError(f"start_port ({self.start_port}) должен быть меньше "
@@ -199,11 +207,11 @@ class ConfigManager:
         """
         Инициализирует менеджер конфигурации.
 
-        Если config_file_path None, используется дефолт 'config.json'.
+        Если `config_file_path` равен `None`, используется значение по умолчанию 'config.json'.
 
         Args:
-            config_file_path: Путь к конфигурационному файлу
-                              (по умолчанию 'config.json'; можно None для дефолта).
+            config_file_path (Optional[str]): Путь к конфигурационному файлу.
+                                              По умолчанию 'config.json'.
         """
         if config_file_path is None:
             actual_config_path: str = 'config.json'
@@ -216,20 +224,21 @@ class ConfigManager:
 
     async def async_init(self) -> None:
         """
-        Асинхронная инициализация: загружает конфигурацию после создания объекта.
+        Выполняет асинхронную инициализацию менеджера конфигурации.
+
+        Загружает конфигурацию из файла после создания объекта.
         """
         self.config = await self._load_config()
 
     async def _load_config(self) -> AppConfig:
         """
-        Загружает конфигурацию из JSON-файла, валидирует через Pydantic,
-        создаёт файл при отсутствии.
+        Загружает конфигурацию из JSON-файла.
 
         Метод проверяет наличие файла, при необходимости создаёт дефолтный,
-        читает существующий и валидирует его через модель AppConfig.
+        читает существующий и валидирует его через модель `AppConfig`.
 
         Returns:
-            Валидный объект AppConfig, готовый к использованию.
+            AppConfig: Валидный объект `AppConfig`, готовый к использованию.
         """
         if not self.config_file_path.exists():
             logger.info("Файл %s не найден. Создаём с дефолтными данными.",
@@ -256,21 +265,24 @@ class ConfigManager:
         Возвращает текущий загруженный объект конфигурации.
 
         Returns:
-            Объект AppConfig с текущими настройками.
+            AppConfig: Объект `AppConfig` с текущими настройками.
         """
         return self.config
 
     async def reload_config(self) -> None:
         """
-        Перезагружает конфигурацию из файла с валидацией.
+        Перезагружает конфигурацию из файла.
 
-        Текущие настройки в self.config будут перезаписаны новыми данными из файла.
+        Текущие настройки в `self.config` будут перезаписаны новыми данными из файла
+        после его валидации.
         """
         self.config = await self._load_config()
 
     async def save_config(self) -> None:
         """
-        Сохраняет текущую конфигурацию в JSON-файл (после валидации через модель).
+        Сохраняет текущую конфигурацию в JSON-файл.
+
+        Конфигурация сохраняется после валидации через модель `AppConfig`.
 
         Raises:
             IOError: При ошибке записи файла.

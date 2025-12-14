@@ -27,7 +27,7 @@ class ErrorHandler:
         Инициализирует обработчик ошибок и регистрирует его методы в приложении.
 
         Args:
-            app: Экземпляр приложения Quart, в котором будут зарегистрированы обработчики.
+            app (Quart): Экземпляр приложения Quart, в котором будут зарегистрированы обработчики.
         """
         self.app = app
 
@@ -41,10 +41,10 @@ class ErrorHandler:
         Логирует ошибку и возвращает JSON-ответ с соответствующим статусом.
 
         Args:
-            error: Объект исключения HTTPException.
+            error (HTTPException): Объект исключения HTTPException.
 
         Returns:
-            Кортеж (JSON-ответ, HTTP-статус 404).
+            Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 404).
         """
         logger.warning("404 ошибка: %s", error)
         return jsonify({"error": "Not found", "message": str(error)}), 404
@@ -56,10 +56,10 @@ class ErrorHandler:
         Логирует критическую ошибку и возвращает общий JSON-ответ для клиента.
 
         Args:
-            error: Объект исключения.
+            error (Exception): Объект исключения.
 
         Returns:
-            Кортеж (JSON-ответ, HTTP-статус 500).
+            Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 500).
         """
         logger.error("500 ошибка (внутренняя ошибка сервера): %s", error, exc_info=True)
         return jsonify({"error": "Internal server error", "message": "Something went wrong"}), 500
@@ -71,10 +71,10 @@ class ErrorHandler:
         Логирует ошибку запроса и возвращает JSON-ответ с деталями.
 
         Args:
-            error: Объект исключения HTTPException.
+            error (HTTPException): Объект исключения HTTPException.
 
         Returns:
-            Кортеж (JSON-ответ, HTTP-статус 400).
+            Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 400).
         """
         logger.info("400 ошибка (плохой запрос): %s", error)
         return jsonify({"error": "Bad request", "message": str(error)}), 400
@@ -86,25 +86,26 @@ class ErrorHandler:
         Логирует ошибку доступа и возвращает JSON-ответ.
 
         Args:
-            error: Объект исключения HTTPException.
+            error (HTTPException): Объект исключения HTTPException.
 
         Returns:
-            Кортеж (JSON-ответ, HTTP-статус 403).
+            Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 403).
         """
         logger.warning("403 ошибка (запрещено): %s", error)
         return jsonify({"error": "Forbidden", "message": str(error)}), 403
 
     async def handle_generic_exception(self, error: Exception) -> Tuple[Response, int]:
         """
-        Обрабатывает любые необработанные исключения, которые не являются HTTP-ошибками.
+        Обрабатывает любые необработанные исключения, не являющиеся HTTP-ошибками.
 
-        Логирует полную информацию об исключении и возвращает JSON-ответ с HTTP-статусом 500.
+        Логирует полную информацию об исключении и возвращает JSON-ответ
+        с HTTP-статусом 500.
 
         Args:
-            error: Объект исключения.
+            error (Exception): Объект исключения.
 
         Returns:
-            Кортеж (JSON-ответ, HTTP-статус 500).
+            Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 500).
         """
         logger.error("Необработанная ошибка: %s", error, exc_info=True)
         return jsonify({"error": "Unexpected error",
@@ -112,11 +113,12 @@ class ErrorHandler:
 
     def add_custom_error_handler(self, code: int, handler_func):
         """
-        Метод для динамического добавления кастомных обработчиков ошибок во время выполнения.
+        Динамически добавляет кастомные обработчики ошибок во время выполнения.
 
         Args:
-            code: HTTP-код ошибки (например, 405).
-            handler_func: Асинхронная функция-обработчик, принимающая объект ошибки.
+            code (int): HTTP-код ошибки (например, 405).
+            handler_func (Callable): Асинхронная функция-обработчик,
+                                     принимающая объект ошибки.
         """
         @self.app.errorhandler(code)
         async def custom_handler(error):
@@ -124,10 +126,10 @@ class ErrorHandler:
 
     def register_error_handlers(self, app: Quart):
         """
-        Регистрирует методы текущего класса как глобальные обработчики ошибок в приложении Quart.
+        Регистрирует методы текущего класса как глобальные обработчики ошибок.
 
         Args:
-            app: Экземпляр приложения Quart.
+            app (Quart): Экземпляр приложения Quart.
         """
         # Используем self.handle_... для регистрации методов текущего объекта
         app.register_error_handler(404, self.handle_404)

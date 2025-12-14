@@ -26,15 +26,14 @@ class ProxyRouter:
 
     def __init__(self, config_manager: ConfigManager,
                  instance_manager: InstanceManager, http_client: httpx.AsyncClient):
-        # pylint: disable=C0301
         """
         Инициализирует ProxyRouter.
 
         Args:
-            config_manager: Экземпляр ConfigManager для доступа к настройкам приложения
-                            (например, таймаутам).
-            instance_manager: Экземпляр InstanceManager для проверки статуса целевых инстансов Astra.
-            http_client: Асинхронный HTTP-клиент для выполнения запросов.
+            config_manager (ConfigManager): Экземпляр ConfigManager для доступа к настройкам приложения
+                                            (например, таймаутам).
+            instance_manager (InstanceManager): Экземпляр InstanceManager для проверки статуса целевых инстансов Astra.
+            http_client (httpx.AsyncClient): Асинхронный HTTP-клиент для выполнения запросов.
         """
         self.config_manager = config_manager
         self.instance_manager = instance_manager
@@ -79,10 +78,10 @@ class ProxyRouter:
         Перехватывает и логирует исключения верхнего уровня, возникающие в процессе проксирования.
 
         Args:
-            path: Целевой эндпоинт Astra API.
+            path (str): Целевой эндпоинт Astra API.
 
         Returns:
-            Quart Response объект с результатом проксирования или ошибкой 500.
+            Tuple[Response, int]: Объект Quart Response с результатом проксирования или ошибкой 500.
         """
         try:
             return await self.proxy_request_helper(path)
@@ -96,11 +95,17 @@ class ProxyRouter:
         """
         Валидирует входные данные для прокси-запроса.
 
+        Проверяет наличие и корректность `astra_addr` в теле запроса.
+
         Args:
-            request_data: Сырые данные запроса.
+            request_data (Any): Сырые данные запроса.
 
         Returns:
-            Кортеж: (адрес Astra, кортеж (JSON-ответ с ошибкой, HTTP-статус) или None).
+            Tuple[Optional[str], Optional[Tuple[Dict[str, Any], int]]]:
+                Кортеж, содержащий:
+                - `str` (адрес Astra) или `None`, если валидация не пройдена.
+                - Кортеж `(JSON-ответ с ошибкой, HTTP-статус)` или `None`,
+                  если валидация успешна.
         """
         if not request_data or not isinstance(request_data, dict):
             return None, ({'error': 'Неверный или отсутствующий JSON'}, 400)
@@ -126,13 +131,14 @@ class ProxyRouter:
         Выполняет HTTP-запрос к целевому инстансу Astra и обрабатывает ответ.
 
         Args:
-            addr: Адрес инстанса Astra.
-            endpoint: Целевой эндпоинт Astra API.
-            payload: Полезная нагрузка для отправки.
-            proxy_timeout: Таймаут для HTTP-запроса.
+            addr (str): Адрес инстанса Astra.
+            endpoint (str): Целевой эндпоинт Astra API.
+            payload (Dict[str, Any]): Полезная нагрузка для отправки.
+            proxy_timeout (int): Таймаут для HTTP-запроса.
 
         Returns:
-            Кортеж: (JSON-ответ от сервера Astra, HTTP-статус).
+            Tuple[Dict[str, Any], int]: Кортеж, содержащий JSON-ответ от сервера Astra
+                                        и HTTP-статус.
         """
         url = f'http://{addr}{endpoint}'
         headers = {'Content-Type': 'application/json'}
@@ -169,11 +175,11 @@ class ProxyRouter:
         проверяет его статус онлайн через InstanceManager и перенаправляет запрос.
 
         Args:
-            endpoint: Конкретный эндпоинт Astra API, к которому идет обращение
-                      (например, '/api/reload').
+            endpoint (str): Конкретный эндпоинт Astra API, к которому идет обращение
+                            (например, '/api/reload').
 
         Returns:
-            JSON-ответ от сервера Astra, либо JSON-ответ с описанием ошибки.
+            Tuple[Response, int]: JSON-ответ от сервера Astra, либо JSON-ответ с описанием ошибки.
         """
         if not self.config_manager:
             return jsonify({'error': 'Конфигурация не инициализирована'}), 500
@@ -200,9 +206,12 @@ class ProxyRouter:
 
     def get_blueprint(self) -> Blueprint:
         """
-        Возвращает сконфигурированный объект Blueprint для регистрации в основном приложении Quart.
+        Возвращает сконфигурированный объект Blueprint.
+
+        Этот Blueprint содержит все зарегистрированные маршруты проксирования
+        и готов к регистрации в основном приложении Quart.
 
         Returns:
-            Экземпляр Quart Blueprint с зарегистрированными маршрутами проксирования.
+            Blueprint: Экземпляр Quart Blueprint с зарегистрированными маршрутами проксирования.
         """
         return self.blueprint

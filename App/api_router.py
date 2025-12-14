@@ -29,8 +29,8 @@ class ApiRouter:
         Инициализирует маршрутизатор API.
 
         Args:
-            instance_manager: Экземпляр класса InstanceManager,
-                              предоставляющий методы для работы с данными.
+            instance_manager (InstanceManager): Экземпляр класса InstanceManager,
+                                                предоставляющий методы для работы с данными.
         """
         self.instance_manager = instance_manager
         # Инициализация blueprint с указанием пути к шаблонам
@@ -39,7 +39,9 @@ class ApiRouter:
 
     def setup_routes(self):
         """
-        Регистрирует URL-маршруты и соответствующие им асинхронные обработчики
+        Регистрирует URL-маршруты и соответствующие им асинхронные обработчики.
+
+        Метод добавляет правила URL и связывает их с функциями-обработчиками
         (view functions) в blueprint.
         """
         self.blueprint.add_url_rule('/', 'index', self.index)
@@ -54,19 +56,20 @@ class ApiRouter:
         Рендерит основной HTML-шаблон пользовательского интерфейса приложения.
 
         Returns:
-            Ответ с отрендеренным содержимым файла index.html.
+            Tuple[Response, int]: Ответ с отрендеренным содержимым файла index.html
+                                  и HTTP-статусом 200.
         """
-        return await render_template('index.html'), 200
+        return Response(await render_template('index.html')), 200
 
     async def get_instances(self) -> Response:
         """
-        Обработчик URL '/api/instances'.
+        Обработчик URL '/api/instances' для Server-Sent Events (SSE).
 
-        Устанавливает соединение Server-Sent Events (SSE) для потоковой передачи
-        обновлений списка инстансов в реальном времени клиенту.
+        Устанавливает SSE-соединение для потоковой передачи обновлений списка
+        инстансов в реальном времени клиенту.
 
         Returns:
-            Quart Response объект с mimetype='text/event-stream'.
+            Response: Объект Quart Response с mimetype='text/event-stream'.
         """
         async def generate():
             last_sent = None
@@ -102,21 +105,24 @@ class ApiRouter:
 
     async def api_update_instances(self) -> Response:
         """
-        Обработчик URL '/api/update_instances' (POST метод).
+        Обработчик POST-запроса для URL '/api/update_instances'.
 
         Запускает принудительное ручное обновление списка инстансов через InstanceManager.
 
         Returns:
-            JSON-ответ, содержащий текущее состояние инстансов после обновления.
+            Response: JSON-ответ, содержащий текущее состояние инстансов после обновления.
         """
         data = await self.instance_manager.manual_update()
         return jsonify(data)
 
     def get_blueprint(self) -> Blueprint:
         """
-        Возвращает сконфигурированный объект Blueprint для регистрации в основном приложении Quart.
+        Возвращает сконфигурированный объект Blueprint.
+
+        Этот Blueprint содержит все зарегистрированные маршруты и готов
+        к регистрации в основном приложении Quart.
 
         Returns:
-            Экземпляр Quart Blueprint с зарегистрированными маршрутами.
+            Blueprint: Экземпляр Quart Blueprint с зарегистрированными маршрутами.
         """
         return self.blueprint

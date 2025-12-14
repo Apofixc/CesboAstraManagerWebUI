@@ -28,13 +28,13 @@ class InstanceManager:
 
     # pylint: disable=too-many-instance-attributes
     def __init__(self, config_manager: ConfigManager,
-                 http_client: httpx.AsyncClient):  # pylint: disable=C0301
+                 http_client: httpx.AsyncClient):
         """
         Инициализирует менеджер инстансов.
 
         Args:
-            config_manager: Экземпляр ConfigManager для доступа к настройкам сканирования.
-            http_client: Асинхронный HTTP-клиент для выполнения запросов.
+            config_manager (ConfigManager): Экземпляр ConfigManager для доступа к настройкам сканирования.
+            http_client (httpx.AsyncClient): Асинхронный HTTP-клиент для выполнения запросов.
         """
         self.config_manager = config_manager
         self.http_client = http_client
@@ -55,6 +55,9 @@ class InstanceManager:
     async def _load_initial_cache(self) -> None:
         """
         Загружает кэш инстансов из конфигурации при старте приложения.
+
+        Если кэш существует и не устарел, он используется для инициализации
+        списка инстансов. В противном случае кэш игнорируется.
         """
         config = self.config_manager.get_config()
         instances = config.cached_instances
@@ -75,13 +78,16 @@ class InstanceManager:
         """
         Асинхронно проверяет доступность одного экземпляра Astra по API Health Check.
 
+        Использует кэш для предотвращения избыточных HTTP-запросов.
+
         Args:
-            host: Хост инстанса.
-            port: Порт инстанса.
-            scan_timeout: Таймаут (в секундах) для HTTP-запроса.
+            host (str): Хост инстанса.
+            port (int): Порт инстанса.
+            scan_timeout (int): Таймаут (в секундах) для HTTP-запроса.
 
         Returns:
-            Словарь с данными о здоровье инстанса (JSON-ответ), если он онлайн, иначе None.
+            Optional[Dict[str, Any]]: Словарь с данными о здоровье инстанса (JSON-ответ),
+                                      если он онлайн, иначе `None`.
         """
         addr = f'{host}:{port}'
         cache_key = (host, port)
@@ -114,7 +120,16 @@ class InstanceManager:
     def _get_updated_instance_data(self, addr: str, srv_type: str, result: Any,
                                     old_instances: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Определяет обновленные данные для одного инстанса.
+        Определяет обновленные данные для одного инстанса на основе результата проверки.
+
+        Args:
+            addr (str): Адрес инстанса в формате "хост:порт".
+            srv_type (str): Тип сервера ('list' для сконфигурированных, 'autoscan' для автосканирования).
+            result (Any): Результат проверки доступности инстанса (JSON-ответ или исключение).
+            old_instances (Dict[str, Dict[str, Any]]): Словарь предыдущих состояний инстансов.
+
+        Returns:
+            Dict[str, Any]: Словарь с обновленными данными инстанса (версия, статус).
         """
         if isinstance(result, Exception) or result is None:
             logger.debug("Сервер %s: оффлайн или ошибка: %s", addr, result)
@@ -136,11 +151,11 @@ class InstanceManager:
 
     async def perform_update(self):
         """
-        Асинхронно обновляет список активных инстансов Astra с параллельным сканированием.
+        Асинхронно обновляет список активных инстансов Astra.
 
-        Метод запускает проверку всех сконфигурированных или сканируемых адресов
-        параллельно с помощью `asyncio.gather`, обновляет внутреннее состояние `self.instances`
-        и устанавливает `self.update_event` при обнаружении изменений.
+        Метод запускает параллельную проверку всех сконфигурированных или сканируемых
+        адресов, обновляет внутреннее состояние `self.instances` и устанавливает
+        `self.update_event` при обнаружении изменений.
         """
         config = self.config_manager.get_config()
         async with self.instances_lock:
@@ -171,6 +186,14 @@ class InstanceManager:
                                             config: Any) -> None:
         """
         Проверяет наличие изменений в списке инстансов и уведомляет подписчиков.
+
+        Если обнаружены изменения, обновляет кэш в конфигурации и сохраняет его
+        с использованием механизма debounce, а также устанавливает событие `update_event`.
+
+        Args:
+            old_instances (Dict[str, Dict[str, Any]]): Словарь предыдущих состояний инстансов.
+            temp_instances (Dict[str, Dict[str, Any]]): Словарь текущих состояний инстансов.
+            config (Any): Объект конфигурации приложения.
         """
         has_changed = False
         new_instances_list = [{'addr': addr, **data} for addr, data in temp_instances.items()]
@@ -202,7 +225,16 @@ class InstanceManager:
 
     def _get_target_addresses(self, config) -> List[Tuple[str, int, str]]:
         """
-        Формирует список целевых адресов для сканирования на основе конфигурации.
+        Формирует список целевых адресов для сканирования.
+
+        Список формируется на основе конфигурации: либо из явно указанных серверов,
+        либо путем автосканирования диапазона портов.
+
+        Args:
+            config (AppConfig): Объект конфигурации приложения.
+
+        Returns:
+            List[Tuple[str, int, str]]: Список кортежей (хост, порт, тип_сканирования).
         """
         target_addresses: List[Tuple[str, int, str]] = []
         if config.servers:
@@ -214,10 +246,10 @@ class InstanceManager:
 
     async def async_update_loop(self):
         """
-        Асинхронный цикл бесконечного обновления инстансов с интервалом.
+        Асинхронный цикл бесконечного обновления инстансов.
 
-        Запускается как фоновая задача Quart и работает на протяжении всего
-        времени жизни приложения, периодически вызывая `perform_update`.
+        Запускается как фоновая задача и периодически вызывает `perform_update`
+        с интервалом, определенным в конфигурации.
         """
         config = self.config_manager.get_config()
         check_interval = config.check_interval
@@ -240,10 +272,10 @@ class InstanceManager:
         Проверяет, помечен ли конкретный инстанс как 'Online' в текущем списке.
 
         Args:
-            addr: Адрес инстанса в формате "хост:порт".
+            addr (str): Адрес инстанса в формате "хост:порт".
 
         Returns:
-            True, если инстанс онлайн, False в противном случае.
+            bool: `True`, если инстанс онлайн, `False` в противном случае.
         """
         async with self.instances_lock:
             return any(i['addr'] == addr and i['status'] == 'Online' for i in self.instances)
@@ -253,15 +285,21 @@ class InstanceManager:
         Возвращает текущий список инстансов.
 
         Returns:
-            Копия списка всех отслеживаемых инстансов с их статусами и версиями.
+            List[Dict[str, Any]]: Копия списка всех отслеживаемых инстансов
+                                  с их статусами и версиями.
         """
         async with self.instances_lock:
             return self.instances.copy()
 
     async def _debounce_save_config(self, delay: float = 5.0) -> None:
         """
-        Откладывает сохранение конфигурации, чтобы избежать слишком частых записей на диск.
-        Если новая задача сохранения приходит до завершения задержки, предыдущая отменяется.
+        Откладывает сохранение конфигурации для предотвращения слишком частых записей на диск.
+
+        Если новая задача сохранения приходит до завершения задержки,
+        предыдущая задача отменяется.
+
+        Args:
+            delay (float): Задержка в секундах перед сохранением. По умолчанию 5.0.
         """
         if self._save_task and not self._save_task.done():
             self._save_task.cancel()
@@ -284,10 +322,12 @@ class InstanceManager:
 
     async def manual_update(self) -> List[Dict[str, Any]]:
         """
-        Запускает немедленное обновление списка инстансов (используется API-эндпоинтом).
+        Запускает немедленное обновление списка инстансов.
+
+        Этот метод используется API-эндпоинтом для принудительного обновления.
 
         Returns:
-            Обновленный список инстансов после завершения сканирования.
+            List[Dict[str, Any]]: Обновленный список инстансов после завершения сканирования.
         """
         await self.perform_update()
         return await self.get_instances()
