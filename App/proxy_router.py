@@ -9,9 +9,11 @@ from typing import Any, Dict, Optional, Tuple
 
 import httpx # type: ignore
 from quart import Blueprint, request, Response, jsonify # type: ignore
+from pydantic import ValidationError # type: ignore
 
 from .config_manager import ConfigManager
 from .instance_manager import InstanceManager
+from .api_models import AstraAddrRequest, CreateChannelRequest, ControlStreamRequest, GetMonitorDataRequest, GetAdapterDataRequest, GetPsiChannelRequest # Импорт Pydantic моделей
 
 logger = logging.getLogger(__name__)
 
@@ -195,22 +197,47 @@ class ProxyRouter:
         """
         config = self.config_manager.get_config()
         proxy_timeout = config.proxy_timeout
-
         request_data = await request.get_json()
-        addr, validation_error_tuple = await self._validate_proxy_request_data(request_data)
-        if validation_error_tuple:
-            response_data, status_code = validation_error_tuple
+
+        # Определяем модель Pydantic для валидации в зависимости от эндпоинта
+        model_map = {
+            '/api/create_channel': CreateChannelRequest,
+            '/api/control_kill_stream': ControlStreamRequest,
+            '/api/control_kill_channel': ControlStreamRequest,
+            '/api/control_kill_monitor': ControlStreamRequest,
+            '/api/get_monitor_data': GetMonitorDataRequest,
+            '/api/get_adapter_list': AstraAddrRequest, # Эти эндпоинты могут не требовать дополнительных полей, кроме astra_addr
+            '/api/get_adapter_data': GetAdapterDataRequest,
+            '/api/get_psi_channel': GetPsiChannelRequest,
+            '/api/get_channel_list': AstraAddrRequest,
+            '/api/get_monitor_list': AstraAddrRequest,
+            '/api/exit': AstraAddrRequest,
+            '/api/reload': AstraAddrRequest,
+        }
+
+        validation_model = model_map.get(endpoint, AstraAddrRequest) # По умолчанию используем AstraAddrRequest
+
+        try:
+            validated_data = validation_model(**request_data)
+            addr = validated_data.astra_addr
+
+            if not await self.instance_manager.check_instance_online(addr):
+                return jsonify({'error': f'Инстанс {addr} не найден или оффлайн'}), 404
+
+            # Удаляем 'astra_addr' из полезной нагрузки перед отправкой на сервер Astra
+            payload = validated_data.model_dump(exclude={'astra_addr'})
+
+            response_data, status_code = await self._handle_proxy_http_request(
+                addr, endpoint, payload, proxy_timeout
+            )
             return jsonify(response_data), status_code
-
-        assert addr is not None, "addr должен быть строкой после валидации"
-
-        # Удаляем 'astra_addr' из полезной нагрузки перед отправкой на сервер Astra
-        payload = {k: v for k, v in request_data.items() if k != 'astra_addr'}
-
-        response_data, status_code = await self._handle_proxy_http_request(
-            addr, endpoint, payload, proxy_timeout
-        )
-        return jsonify(response_data), status_code
+        except ValidationError as e:
+            logger.warning("Ошибка валидации запроса для %s: %s", endpoint, e.errors())
+            return jsonify({'error': 'Ошибка валидации запроса', 'details': e.errors()}), 400
+        except Exception as e:
+            logger.error("Непредвиденная ошибка в proxy_request_helper для пути %s: %s", endpoint, e, exc_info=True)
+            return jsonify({'error': 'Непредвиденная ошибка проксирования',
+                            'message': 'Произошла непредвиденная ошибка на сервере.'}), 500
 
     def get_blueprint(self) -> Blueprint:
         """

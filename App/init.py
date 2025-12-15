@@ -18,6 +18,7 @@ from .error_handler import ErrorHandler
 from .instance_manager import InstanceManager
 from .proxy_router import ProxyRouter
 from .lifecycle_manager import LifecycleManager # Импорт нового класса
+from .logger_config import setup_logging # Импорт функции настройки логирования
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,10 @@ class AppCore:
         self.app: Quart = Quart("Astra Web-UI")
         self._sse_tasks: set[asyncio.Task] = set() # Для отслеживания активных SSE задач
         self.lifecycle_manager.set_app_and_sse_tasks(self.app, self._sse_tasks)
+
+        # Настраиваем логирование сразу после инициализации config_manager
+        config = self.config_manager.get_config()
+        setup_logging(debug=config.debug, log_file=config.log_file_path)
 
     def add_sse_task(self, task: asyncio.Task):
         """Добавляет SSE задачу в отслеживаемый набор."""

@@ -9,9 +9,11 @@ import json
 from typing import Any, Tuple
 import logging
 
-from quart import Blueprint, jsonify, render_template, Response  # type: ignore
+from quart import Blueprint, jsonify, render_template, Response, request # type: ignore
+from pydantic import ValidationError # type: ignore
 
 from .instance_manager import InstanceManager
+from .api_models import AstraAddrRequest # Импорт Pydantic модели
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +132,7 @@ class ApiRouter:
         response.headers['Connection'] = 'close'
         return response
 
-    async def api_update_instances(self) -> Response:
+    async def api_update_instances(self) -> Tuple[Response, int]:
         """
         Обработчик POST-запроса для URL '/api/update_instances'.
 
@@ -139,8 +141,16 @@ class ApiRouter:
         Returns:
             Response: JSON-ответ, содержащий текущее состояние инстансов после обновления.
         """
-        data = await self.instance_manager.manual_update()
-        return jsonify(data)
+        try:
+            # Валидация запроса не требуется для этого эндпоинта, так как он не принимает тело запроса
+            data = await self.instance_manager.manual_update()
+            return jsonify(data), 200
+        except ValidationError as e:
+            logger.warning("Ошибка валидации запроса для /api/update_instances: %s", e.errors())
+            return jsonify({'error': 'Ошибка валидации запроса', 'details': e.errors()}), 400
+        except Exception as e:
+            logger.error("Непредвиденная ошибка в api_update_instances: %s", e, exc_info=True)
+            return jsonify({'error': 'Непредвиденная ошибка сервера'}), 500
 
     def get_blueprint(self) -> Blueprint:
         """

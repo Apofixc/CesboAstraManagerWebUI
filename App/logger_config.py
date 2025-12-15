@@ -21,8 +21,14 @@ def setup_logging(debug: bool = False, log_file: Optional[str] = None):
 
     handlers = []
     if log_file:
+        # Убедимся, что директория для лог-файла существует
+        from pathlib import Path
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         handlers.append(logging.FileHandler(log_file, encoding='utf-8'))
-    handlers.append(logging.StreamHandler())
+    else:
+        # Если log_file не указан, логируем в консоль
+        handlers.append(logging.StreamHandler())
 
     logging.basicConfig(
         level=level,

@@ -103,7 +103,8 @@ class AppConfig(BaseModel):
     cors_allow_origin: str = Field("*", description="Значение заголовка Access-Control-Allow-Origin для CORS")
     debounce_save_delay: float = Field(5.0, gt=0,
                                        description="Задержка в секундах для отложенного сохранения конфигурации")
-    api_key: Optional[str] = Field("test", description="API ключ для авторизации запросов к серверам Astra")
+    api_key: Optional[str] = Field(None, description="API ключ для авторизации запросов к серверам Astra")
+    log_file_path: Optional[str] = Field(None, description="Путь к файлу логов. Если None, логи выводятся в stdout.")
     instance_manager_max_connections: int = Field(100, gt=0,
                                                   description="Максимальное количество одновременных соединений для InstanceManager")
     instance_manager_max_keepalive_connections: int = Field(20, ge=0,
@@ -247,7 +248,7 @@ class ConfigManager:
                 data: Dict[str, Any] = json.loads(content)
             config: AppConfig = AppConfig.model_validate(data)
             default_config: AppConfig = AppConfig.model_validate({})
-            
+
             # Проверяем и добавляем отсутствующие поля из дефолтной конфигурации
             updated = False
             for field_name, field_info in default_config.model_fields.items():
@@ -255,11 +256,11 @@ class ConfigManager:
                     setattr(config, field_name, getattr(default_config, field_name))
                     logger.info("Добавлено отсутствующее поле '%s' в конфигурацию с дефолтным значением.", field_name)
                     updated = True
-            
+
             if updated:
                 logger.info("Конфигурация обновлена новыми полями. Сохраняем файл.")
                 await self.save_config() # Сохраняем обновленную конфигурацию
-            
+
             return config
         except FileNotFoundError:
             logger.info("Файл конфигурации %s не найден. Создаём с дефолтными данными.",

@@ -9,7 +9,9 @@ import logging
 
 from quart import jsonify, Quart, Response  # type: ignore
 from werkzeug.exceptions import HTTPException  # type: ignore
+from pydantic import ValidationError # type: ignore
 
+from .api_models import ErrorResponse # Импорт Pydantic модели для ошибок
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +49,8 @@ class ErrorHandler:
             Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 404).
         """
         logger.warning("404 ошибка: %s", error)
-        return jsonify({"error": "Not found", "message": str(error)}), 404
+        error_response = ErrorResponse(error="Not Found", message=str(error), details=error.description if isinstance(error, HTTPException) else None)
+        return jsonify(error_response.model_dump()), 404
 
     async def handle_400(self, error: HTTPException) -> Tuple[Response, int]:
         """
@@ -62,7 +65,8 @@ class ErrorHandler:
             Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 400).
         """
         logger.warning("400 ошибка (плохой запрос): %s", error)
-        return jsonify({"error": "Bad request", "message": str(error)}), 400
+        error_response = ErrorResponse(error="Bad Request", message=str(error), details=error.description if isinstance(error, HTTPException) else None)
+        return jsonify(error_response.model_dump()), 400
 
     async def handle_403(self, error: HTTPException) -> Tuple[Response, int]:
         """
@@ -77,7 +81,8 @@ class ErrorHandler:
             Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 403).
         """
         logger.warning("403 ошибка (запрещено): %s", error)
-        return jsonify({"error": "Forbidden", "message": str(error)}), 403
+        error_response = ErrorResponse(error="Forbidden", message=str(error), details=error.description if isinstance(error, HTTPException) else None)
+        return jsonify(error_response.model_dump()), 403
 
     async def handle_generic_exception(self, error: Exception) -> Tuple[Response, int]:
         """
@@ -93,8 +98,8 @@ class ErrorHandler:
             Tuple[Response, int]: Кортеж (JSON-ответ, HTTP-статус 500).
         """
         logger.error("Необработанная ошибка: %s", error, exc_info=True)
-        return jsonify({"error": "Unexpected error",
-                        "message": "An unexpected error occurred."}), 500
+        error_response = ErrorResponse(error="Internal Server Error", message="An unexpected error occurred.", details=str(error))
+        return jsonify(error_response.model_dump()), 500
 
     def add_custom_error_handler(self, code: int, handler_func):
         """
