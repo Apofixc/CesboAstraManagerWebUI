@@ -110,9 +110,14 @@ class InstanceManager:
 
         # Выполняем HTTP-запрос вне блокировки для максимального параллелизма
         result = None
+        headers = {}
+        if config.api_key:
+            headers["x-api-key"] = config.api_key
+
         try:
             res = await self.http_client.get(f'http://{host}:{port}/api/health',
-                                             timeout=scan_timeout)
+                                             timeout=scan_timeout,
+                                             headers=headers)
 
             if res.status_code == 200:
                 try:

@@ -148,6 +148,9 @@ class ProxyRouter:
         """
         url = f'http://{addr}{endpoint}'
         headers = {'Content-Type': 'application/json'}
+        config = self.config_manager.get_config()
+        if config.api_key:
+            headers["x-api-key"] = config.api_key
 
         try:
             res = await self.http_client.post(url, json=payload, headers=headers,
