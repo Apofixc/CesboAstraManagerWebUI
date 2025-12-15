@@ -13,7 +13,13 @@ from pydantic import ValidationError # type: ignore
 
 from .config_manager import ConfigManager
 from .instance_manager import InstanceManager
-from .api_models import AstraAddrRequest, CreateChannelRequest, ControlStreamRequest, GetMonitorDataRequest, GetAdapterDataRequest, GetPsiChannelRequest # Импорт Pydantic моделей
+from .api_models import (
+    AstraAddrRequest, CreateChannelRequest, ControlStreamRequest,
+    GetMonitorDataRequest, GetAdapterDataRequest, GetPsiChannelRequest,
+    UpdateMonitorChannelRequest, UpdateMonitorDvbRequest, ReloadRequest, ExitRequest,
+    MonitorStatus, PsiData, ChannelListResponse, MonitorListResponse,
+    AdapterStatus, AdapterListResponse, AstraHealthResponse, ErrorResponse
+) # Импорт Pydantic моделей
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +96,12 @@ class ProxyRouter:
             return await self.proxy_request_helper(path)
         except Exception as err: # pylint: disable=W0718
             logger.error("Критическая ошибка в proxy_request для пути %s: %s", path, err, exc_info=True)
-            return jsonify({'error': 'Непредвиденная ошибка проксирования',
-                            'message': 'Произошла непредвиденная ошибка на сервере.'}), 500
+            error_response = ErrorResponse(
+                error='Непредвиденная ошибка проксирования',
+                message='Произошла непредвиденная ошибка на сервере.',
+                details=str(err)
+            )
+            return jsonify(error_response.model_dump()), 500
 
     async def _validate_proxy_request_data(self, request_data: Any) -> \
             Tuple[Optional[str], Optional[Tuple[Dict[str, Any], int]]]:
@@ -161,23 +171,60 @@ class ProxyRouter:
             status_code: int
 
             try:
-                response_data, status_code = res.json(), res.status_code
+                raw_response_data = res.json()
+                status_code = res.status_code
+
+                # Валидация ответа от Astra
+                response_model_map = {
+                    '/api/get_channel_list': ChannelListResponse,
+                    '/api/get_monitor_list': MonitorListResponse,
+                    '/api/get_monitor_data': MonitorStatus,
+                    '/api/get_psi_channel': PsiData,
+                    '/api/get_adapter_list': AdapterListResponse,
+                    '/api/get_adapter_data': AdapterStatus,
+                    '/api/health': AstraHealthResponse,
+                    # Для других эндпоинтов, которые возвращают простые статусы или неструктурированные данные,
+                    # можно не применять строгую валидацию или использовать базовую модель.
+                }
+                response_validation_model = response_model_map.get(endpoint)
+
+                if response_validation_model:
+                    validated_response = response_validation_model.model_validate(raw_response_data)
+                    response_data = validated_response.model_dump()
+                else:
+                    response_data = raw_response_data
+
+            except ValidationError as e:
+                logger.warning("Ошибка валидации ответа от Astra для %s: %s", endpoint, e.errors())
+                error_response = ErrorResponse(
+                    error="Invalid Astra Response",
+                    message="Received malformed data from Astra server.",
+                    details=e.errors()
+                )
+                response_data, status_code = error_response.model_dump(), 502 # Bad Gateway
             except ValueError:
                 logger.warning("Неверный JSON-ответ от удаленного сервера со статусом %s",
                                res.status_code)
-                response_data, status_code = {'error': f'Ошибка на удаленном сервере: Статус {res.status_code}',
-                                              'details': res.text}, res.status_code
+                error_response = ErrorResponse(
+                    error="Bad Gateway",
+                    message=f"Received non-JSON or malformed response from Astra server: Status {res.status_code}",
+                    details=res.text
+                )
+                response_data, status_code = error_response.model_dump(), 502
 
         except httpx.TimeoutException:
             logger.error("Таймаут подключения к %s на %s", addr, endpoint)
-            response_data, status_code = {'error': 'Превышен таймаут подключения к Astra'}, 504
+            error_response = ErrorResponse(error="Gateway Timeout", message="Превышен таймаут подключения к Astra", details=None)
+            response_data, status_code = error_response.model_dump(), 504
         except httpx.ConnectError as err:
             logger.error("Ошибка подключения к %s на %s: %s", addr, endpoint, err)
-            response_data, status_code = {'error': 'Ошибка подключения к Astra'}, 503
+            error_response = ErrorResponse(error="Service Unavailable", message="Ошибка подключения к Astra", details=None)
+            response_data, status_code = error_response.model_dump(), 503
         except Exception as err: # pylint: disable=W0718
             logger.error("Непредвиденная ошибка при проксировании к %s на %s: %s",
                              addr, endpoint, err, exc_info=True)
-            response_data, status_code = {'error': 'Непредвиденная ошибка'}, 500
+            error_response = ErrorResponse(error="Internal Server Error", message="Непредвиденная ошибка", details=str(err))
+            response_data, status_code = error_response.model_dump(), 500
 
         return response_data, status_code
 
@@ -206,15 +253,17 @@ class ProxyRouter:
             '/api/control_kill_channel': ControlStreamRequest,
             '/api/control_kill_monitor': ControlStreamRequest,
             '/api/get_monitor_data': GetMonitorDataRequest,
-            '/api/get_adapter_list': AstraAddrRequest, # Эти эндпоинты могут не требовать дополнительных полей, кроме astra_addr
-            '/api/get_adapter_data': GetAdapterDataRequest,
             '/api/get_psi_channel': GetPsiChannelRequest,
+            '/api/get_adapter_list': AstraAddrRequest,
+            '/api/get_adapter_data': GetAdapterDataRequest,
+            '/api/update_monitor_channel': UpdateMonitorChannelRequest,
             '/api/get_channel_list': AstraAddrRequest,
             '/api/get_monitor_list': AstraAddrRequest,
-            '/api/exit': AstraAddrRequest,
-            '/api/reload': AstraAddrRequest,
+            '/api/update_monitor_dvb': UpdateMonitorDvbRequest,
+            '/api/reload': ReloadRequest,
+            '/api/exit': ExitRequest,
         }
-
+        
         validation_model = model_map.get(endpoint, AstraAddrRequest) # По умолчанию используем AstraAddrRequest
 
         try:
@@ -222,7 +271,7 @@ class ProxyRouter:
             addr = validated_data.astra_addr
 
             if not await self.instance_manager.check_instance_online(addr):
-                return jsonify({'error': f'Инстанс {addr} не найден или оффлайн'}), 404
+                return jsonify(ErrorResponse(error="Instance Not Found", message=f'Инстанс {addr} не найден или оффлайн', details=None).model_dump()), 404
 
             # Удаляем 'astra_addr' из полезной нагрузки перед отправкой на сервер Astra
             payload = validated_data.model_dump(exclude={'astra_addr'})
@@ -233,11 +282,11 @@ class ProxyRouter:
             return jsonify(response_data), status_code
         except ValidationError as e:
             logger.warning("Ошибка валидации запроса для %s: %s", endpoint, e.errors())
-            return jsonify({'error': 'Ошибка валидации запроса', 'details': e.errors()}), 400
+            return jsonify(ErrorResponse(error='Ошибка валидации запроса', message='Получены некорректные данные в запросе.', details=e.errors()).model_dump()), 400
         except Exception as e:
             logger.error("Непредвиденная ошибка в proxy_request_helper для пути %s: %s", endpoint, e, exc_info=True)
-            return jsonify({'error': 'Непредвиденная ошибка проксирования',
-                            'message': 'Произошла непредвиденная ошибка на сервере.'}), 500
+            return jsonify(ErrorResponse(error='Непредвиденная ошибка проксирования',
+                            message='Произошла непредвиденная ошибка на сервере.', details=str(e)).model_dump()), 500
 
     def get_blueprint(self) -> Blueprint:
         """
