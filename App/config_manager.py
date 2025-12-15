@@ -103,6 +103,14 @@ class AppConfig(BaseModel):
     cors_allow_origin: str = Field("*", description="Значение заголовка Access-Control-Allow-Origin для CORS")
     debounce_save_delay: float = Field(5.0, gt=0,
                                        description="Задержка в секундах для отложенного сохранения конфигурации")
+    instance_manager_max_connections: int = Field(100, gt=0,
+                                                  description="Максимальное количество одновременных соединений для InstanceManager")
+    instance_manager_max_keepalive_connections: int = Field(20, ge=0,
+                                                            description="Максимальное количество 'живых' соединений для InstanceManager")
+    proxy_router_max_connections: int = Field(200, gt=0,
+                                              description="Максимальное количество одновременных соединений для ProxyRouter")
+    proxy_router_max_keepalive_connections: int = Field(40, ge=0,
+                                                        description="Максимальное количество 'живых' соединений для ProxyRouter")
 
     @field_validator('instance_host')
     @classmethod

@@ -225,13 +225,14 @@ class InstanceManager:
         # Преобразуем словарь в список для сравнения
         old_instances_list = list(old_instances.values())
 
-        # Сортируем списки для обеспечения консистентного порядка перед сравнением
-        new_instances_list.sort(key=lambda x: x['addr'])
-        old_instances_list.sort(key=lambda x: x['addr'])
+        # Преобразуем списки словарей в множества frozenset для эффективного сравнения,
+        # игнорируя порядок, но учитывая содержимое.
+        # frozenset используется, так как элементы множества должны быть хешируемыми.
+        new_instances_set = {frozenset(item.items()) for item in new_instances_list}
+        old_instances_set = {frozenset(item.items()) for item in old_instances_list}
 
-        if new_instances_list != old_instances_list:
+        if new_instances_set != old_instances_set:
             has_changed = True
-
         if has_changed:
             logger.info("Обнаружены изменения в инстансах, кэш обновлен.")
             # Обновляем кэш в конфигурации и сохраняем его

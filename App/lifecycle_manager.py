@@ -61,14 +61,28 @@ class LifecycleManager:
         self._sse_tasks = sse_tasks
         logger.debug("Экземпляр Quart приложения и SSE задачи установлены в LifecycleManager.")
 
-    def _create_http_client(self, timeout: float) -> httpx.AsyncClient:
-        """Создает и возвращает асинхронный HTTP-клиент с заданным таймаутом."""
-        return httpx.AsyncClient(timeout=timeout)
-
+    def _create_http_client(self, timeout: float, limits: httpx.Limits) -> httpx.AsyncClient:
+        """Создает и возвращает асинхронный HTTP-клиент с заданным таймаутом и лимитами."""
+        return httpx.AsyncClient(timeout=timeout, limits=limits)
     async def _initialize_http_clients(self, config: Any):
         """Инициализирует асинхронные HTTP-клиенты."""
-        self.http_client_instance_manager = self._create_http_client(config.scan_timeout)
-        self.http_client_proxy = self._create_http_client(config.proxy_timeout)
+        # Настройка лимитов для InstanceManager:
+        # max_connections: Максимальное количество одновременных соединений.
+        # max_keepalive_connections: Максимальное количество соединений, которые будут храниться в пуле для повторного использования.
+        # Это помогает избежать создания нового соединения для каждого запроса, улучшая производительность.
+        instance_manager_limits = httpx.Limits(
+            max_connections=config.instance_manager_max_connections,
+            max_keepalive_connections=config.instance_manager_max_keepalive_connections
+        )
+        self.http_client_instance_manager = self._create_http_client(config.scan_timeout, instance_manager_limits)
+
+        # Настройка лимитов для ProxyRouter:
+        # Увеличиваем лимиты, так как прокси может обрабатывать больше запросов.
+        proxy_limits = httpx.Limits(
+            max_connections=config.proxy_router_max_connections,
+            max_keepalive_connections=config.proxy_router_max_keepalive_connections
+        )
+        self.http_client_proxy = self._create_http_client(config.proxy_timeout, proxy_limits)
         logger.debug("HTTP-клиенты инициализированы.")
 
     async def _initialize_managers_and_routers(self, app_core_instance: Any):
